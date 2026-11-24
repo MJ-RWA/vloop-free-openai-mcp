@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "stellarator-vloop": {
+      "type": "streamable-http",
+      "url": "https://stellarator.site/mcp"
+    }
+  },
+  "openaiCompatible": {
+    "baseUrl": "https://stellarator.site/v1",
+    "modelsUrl": "https://stellarator.site/v1/models",
+    "chatCompletionsUrl": "https://stellarator.site/v1/chat/completions",
+    "model": "vloop-flash",
+    "authScheme": "Bearer SEAT-<12hex>"
+  },
+  "vloopMainnet": {
+    "chain": "solana-mainnet",
+    "mint": "GRMDqudPsS246yo1xdJPXpQmHooFgx1kErbSBPwyVtjy",
+    "decimals": 6,
+    "genesisTx": "4n92515FtYVaK5RNJAJRR8UMwhHUN7dkWQHi7P6YufKkwV8F8UaNStSUAxiviGCSQ4XdT7yLfNyNKL7GLzNNn9H9"
+  }
+}
