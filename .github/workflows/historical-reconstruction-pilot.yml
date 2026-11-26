@@ -37,11 +37,28 @@ jobs:
             exit 1
           fi
           python historical_reconstruction_pilot.py --per-class "$PER_CLASS"
+      - name: Export labeled feature rows for backtest
+        if: always()
+        run: |
+          if [ -f historical_reconstruction_pilot.json ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("historical_reconstruction_pilot.json").read_text())
+          rows = report.get("feature_rows", [])
+          Path("historical_features.jsonl").write_text(
+              "".join(json.dumps(row, separators=(",", ":")) + "\\n" for row in rows)
+          )
+          print(f"exported {len(rows)} reconstructed feature rows")
+          PY
+          fi
       - name: Upload reconstruction report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: historical-reconstruction-pilot
-          path: historical_reconstruction_pilot.json
+          path: |
+            historical_reconstruction_pilot.json
+            historical_features.jsonl
           if-no-files-found: ignore
           retention-days: 14
