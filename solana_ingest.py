@@ -190,24 +190,31 @@ def holders(url,mint,vaults):
 
 def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None):
     if not lp_mint:return 0.0,False,0.0,0,False
-    initial=0
+    initial=0; burned=0
     for ix in instructions(tx):
         typ,info=parsed_info(ix)
         if typ in ("mintto","minttochecked") and info.get("mint")==lp_mint:
             try:initial+=int(info.get("amount",0))
             except (ValueError,TypeError):pass
-    try:
-        supply=int(rpc(url,"getTokenSupply",[lp_mint])["value"]["amount"])
-    except Exception:return 0.0,False,0.0,0,False
-    # A decrease from the observed initial mint-to amount is already the
-    # on-chain burn evidence. Adding balances held by burn addresses would
-    # double-count those same tokens, because burned tokens are absent from
-    # current supply. If supply exceeds the observed initial amount, later
-    # minting or incomplete initial-mint evidence makes the result unknown.
-    if initial and initial>=supply:
-        pct=min(100,100*(initial-supply)/initial)
-        burn_ok=pct>0
-    else:pct=0.0;burn_ok=False
+    # Current supply minus an observed initial mint is not a reliable burn
+    # proof: later minting followed by burning can produce the same net delta.
+    # Count only explicit successful burn instructions in transactions we
+    # actually observed, and never infer burns from a supply snapshot.
+    observed=[]; seen=set()
+    for candidate in (tx,lock_tx):
+        if candidate is None or id(candidate) in seen:continue
+        seen.add(id(candidate))
+        meta=(candidate or {}).get("meta") or {}
+        if meta.get("err") is not None:continue
+        observed.append(candidate)
+    for candidate in observed:
+        for ix in instructions(candidate):
+            typ,info=parsed_info(ix)
+            if typ in ("burn","burnchecked") and info.get("mint")==lp_mint:
+                try:burned+=int(info.get("amount",0))
+                except (ValueError,TypeError):pass
+    pct=min(100,100*burned/initial) if initial and burned>0 else 0.0
+    burn_ok=bool(initial and burned>0)
     locked=0.0;days=0;lock_ok=False
     # A lock is accepted only from a configured program's parsed lock instruction
     # carrying the LP mint, amount and a future unlock timestamp.
