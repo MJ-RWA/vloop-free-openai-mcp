@@ -106,16 +106,29 @@ def instruction_programs(tx):
 
 
 def find_mint_init(url, mint, max_pages=20):
+    # getSignaturesForAddress is newest-first. Page to the oldest retained
+    # signatures first, then inspect transactions oldest-first. A mint account
+    # normally cannot have a transaction before its initialization, so this
+    # avoids thousands of unnecessary getTransaction calls on active mints.
+    pages = []
     before = None
-    inspected = 0
     for _ in range(max_pages):
         params = [mint, {"limit": 1000}]
         if before:
             params[1]["before"] = before
         sigs, error = rpc(url, "getSignaturesForAddress", params)
         if error or not sigs:
-            return None, inspected, error or "no_signatures"
-        for item in sigs:
+            if not pages:
+                return None, 0, error or "no_signatures"
+            break
+        pages.append(sigs)
+        before = sigs[-1].get("signature")
+        if not before or len(sigs) < 1000:
+            break
+
+    inspected = 0
+    for page in reversed(pages):
+        for item in reversed(page):
             inspected += 1
             sig = item.get("signature")
             if not sig:
@@ -128,9 +141,6 @@ def find_mint_init(url, mint, max_pages=20):
             if mint in launch_mints(tx):
                 return {"slot": int(item["slot"]), "signature": sig,
                         "block_time": item.get("blockTime")}, inspected, None
-        before = sigs[-1].get("signature")
-        if not before or len(sigs) < 1000:
-            break
     return None, inspected, "mint_init_not_found_within_page_limit"
 
 
