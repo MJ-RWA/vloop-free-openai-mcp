@@ -131,6 +131,8 @@ def save_pool_association(db,lp_mint,mint,launch,pool,pool_tx):
     stored_pool["mints"]=sorted(pool.get("mints",()))
     db.execute("INSERT OR REPLACE INTO launch_pools VALUES (?,?,?,?,?)",
         (lp_mint,mint,json.dumps(launch,separators=(",",":")),json.dumps(stored_pool,separators=(",",":")),json.dumps(pool_tx,separators=(",",":"))))
+    db.execute("DELETE FROM launch_pools WHERE lp_mint NOT IN (SELECT lp_mint FROM launch_pools ORDER BY rowid DESC LIMIT 10000)")
+    db.execute("DELETE FROM lp_burns WHERE lp_mint NOT IN (SELECT lp_mint FROM launch_pools)")
     db.commit()
 
 def load_pool_associations(db):
