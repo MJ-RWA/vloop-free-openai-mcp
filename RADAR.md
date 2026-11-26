@@ -15,9 +15,9 @@ Python 3.12; no pip packages or wallet are needed. A public RPC endpoint is the 
 python solana_ingest.py \
   --rpc https://api.mainnet-beta.solana.com \
   --ws wss://api.mainnet-beta.solana.com \
-  --dex-program 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8 \\
-  --dex-program pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA \\
-  --dex-program YOUR_OTHER_DEX_PROGRAM_ID \\
+  --dex-program 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8 \
+  --dex-program pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA \
+  --dex-program YOUR_OTHER_DEX_PROGRAM_ID \
   --calibration calibration.json
 ```
 
