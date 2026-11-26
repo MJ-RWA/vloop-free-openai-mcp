@@ -413,8 +413,9 @@ def main():
                         saved=pool_by_lp.get(lp)
                         if saved:
                             mint,launch,pool,pool_tx=saved
-                            record_lp_burn(burn_db,lp,slot,tx)
-                            emit(mint,launch,pool,pool_tx,tx,slot)
+                            if launch["slot"]<=slot<=launch["slot"]+15:
+                                record_lp_burn(burn_db,lp,slot,tx)
+                                emit(mint,launch,pool,pool_tx,tx,slot)
                     continue
                 pool=pool_info(tx,set(args.dex_program)) if pid in args.dex_program else None
                 if pool:
