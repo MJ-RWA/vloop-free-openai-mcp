@@ -13,7 +13,9 @@ import urllib.error
 import urllib.request
 from collections import defaultdict
 
-from solana_ingest import (launch_mints, pool_info, RAYDIUM_V4, PUMP_AMM,\n                           instructions, parsed_info, slot_metrics)\nfrom spl_rug_radar import score_launch
+from solana_ingest import (launch_mints, pool_info, RAYDIUM_V4, PUMP_AMM,
+                           instructions, parsed_info, slot_metrics)
+from spl_rug_radar import score_launch
 
 LABELS_URL = "https://raw.githubusercontent.com/Saba-Heydaridoost/rugpull_detector/main/dataset/rule_based_labels.csv"
 
