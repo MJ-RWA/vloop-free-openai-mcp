@@ -194,7 +194,7 @@ def holders(url,mint,vaults):
             except Exception:pass
     return totals
 
-def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None):
+def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None,burn_txs=None):
     if not lp_mint:return 0.0,False,0.0,0,False
     initial=0; burned=0
     for ix in instructions(tx):
@@ -207,7 +207,9 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None):
     # Count only explicit successful burn instructions in transactions we
     # actually observed, and never infer burns from a supply snapshot.
     observed=[]; seen=set()
-    for candidate in (tx,lock_tx):
+    candidates=[tx,lock_tx]
+    candidates.extend(burn_txs or ())
+    for candidate in candidates:
         if candidate is None or id(candidate) in seen:continue
         seen.add(id(candidate))
         meta=(candidate or {}).get("meta") or {}
@@ -299,7 +301,7 @@ def main():
     if not args.dex_program:ap.error("at least one --dex-program is required; use exact pool program IDs")
     programs=[TOKEN,TOKEN22]+args.dex_program+args.lock_program
     correlator=LaunchCorrelator()
-    sub_program={}; seen={}; pool_by_lp={}
+    sub_program={}; seen={}; pool_by_lp={}; burn_txs_by_lp={}
     while True:
         s=None
         def emit(mint,launch,pool,pool_tx,event_tx,slot):
@@ -309,7 +311,8 @@ def main():
             try:mi=ai["data"]["parsed"]["info"]
             except (TypeError,KeyError):return
             hs=holders(args.rpc,mint,set(pool["vaults"]))
-            burn,bv,lock,days,lv=lp_proof(args.rpc,pool_tx,pool["lp_mint"],set(args.lock_program),slot,event_tx)
+            burn_txs=burn_txs_by_lp.get(pool["lp_mint"],())
+            burn,bv,lock,days,lv=lp_proof(args.rpc,pool_tx,pool["lp_mint"],set(args.lock_program),slot,event_tx,burn_txs)
             activity=slot_metrics(args.rpc,mint,launch["slot"],slot)
             event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
               "mint_authority_active":bool(mi.get("mintAuthority")),"freeze_authority_active":bool(mi.get("freezeAuthority")),
@@ -363,6 +366,11 @@ def main():
                         saved=pool_by_lp.get(lp)
                         if saved:
                             mint,launch,pool,pool_tx=saved
+                            history=burn_txs_by_lp.setdefault(lp,[])
+                            signature=tx.get("transaction",{}).get("signatures",[""])[0]
+                            if signature and all(x.get("transaction",{}).get("signatures",[""])[0]!=signature for x in history):
+                                history.append(tx)
+                                if len(history)>64:history.pop(0)
                             emit(mint,launch,pool,pool_tx,tx,slot)
                     continue
                 pool=pool_info(tx,set(args.dex_program)) if pid in args.dex_program else None
