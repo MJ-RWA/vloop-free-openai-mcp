@@ -95,7 +95,7 @@ def main():
             continue
         slot = min(slots, key=lambda value: abs(value - target))
         ok, block, block_ms = call(args.rpc, "getBlock", [slot, {
-            "encoding": "json", "transactionDetails": "full", "rewards": False,
+            "encoding": "json", "transactionDetails": "signatures", "rewards": False,
             "maxSupportedTransactionVersion": 1
         }])
         if not ok or not block:
@@ -104,7 +104,7 @@ def main():
         txs = block.get("transactions", [])
         signature = None
         if txs:
-            signatures = txs[0].get("transaction", {}).get("signatures", [])
+            signatures = txs[0].get("signatures", [])
             if signatures:
                 signature = signatures[0]
         if not signature:
