@@ -111,6 +111,18 @@ class IngestTests(unittest.TestCase):
         self.assertEqual(p["lp_mint"],a[7])
         self.assertEqual(p["mints"],{a[8],a[9]})
         self.assertEqual(p["vaults"],[a[10],a[11]])
+    def test_pumpswap_create_pool_decoder(self):
+        a=[f"Account{i}" for i in range(18)]
+        tx={"transaction":{"message":{"instructions":[{
+            "programId":solana_ingest.PUMP_AMM,
+            "data":"g4xRkfehbgF",
+            "accounts":a
+        }]}}}
+        p=solana_ingest.pool_info(tx,{solana_ingest.PUMP_AMM})
+        self.assertEqual(p["mints"],{a[3],a[4]})
+        self.assertEqual(p["lp_mint"],a[5])
+        self.assertEqual(p["vaults"],[a[9],a[10]])
+
     def test_pool_parser_ignores_unconfigured_program(self):
         tx={"transaction":{"message":{"instructions":[
           {"programId":"OTHER","parsed":{"type":"initializePool","info":{"tokenMint":"Mint111111111111111111111111111111111"}}}]}}}
