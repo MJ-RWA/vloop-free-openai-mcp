@@ -25,6 +25,18 @@ class HistoricalCollectorTests(unittest.TestCase):
             calls,
         )
 
+    def test_bounded_sampling_is_deterministic_and_within_range(self):
+        first = historical_collect.sampled_slot_numbers(100, 1000, 25, 7)
+        second = historical_collect.sampled_slot_numbers(100, 1000, 25, 7)
+        self.assertEqual(first, second)
+        self.assertEqual(25, len(first))
+        self.assertEqual(sorted(first), first)
+        self.assertTrue(all(100 <= slot <= 1000 for slot in first))
+
+    def test_bounded_sampling_never_exceeds_window_population(self):
+        self.assertEqual([10, 11, 12], historical_collect.sampled_slot_numbers(10, 12, 50, 7))
+        self.assertEqual([], historical_collect.sampled_slot_numbers(10, 9, 5, 7))
+
     def test_checkpoint_round_trip(self):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "checkpoint.json")
