@@ -104,7 +104,7 @@ def lock_event_lp_mints(tx):
     for ix in instructions(tx):
         typ,info=parsed_info(ix)
         lp=info.get("mint",info.get("lpMint"))
-        if "lock" in typ and isinstance(lp,str):found.add(lp)
+        if typ.startswith("lock") and not typ.startswith("unlock") and isinstance(lp,str):found.add(lp)
     return found
 
 
