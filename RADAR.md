@@ -69,13 +69,17 @@ python historical_collect.py --days 1 --max-blocks 100 \
   --checkpoint historical_mint_checkpoint.json
 ```
 
-The collector timestamp-aligns the requested lookback, enumerates produced
-slots in bounded `getBlocks` ranges, and fetches at most the requested
-number of blocks (deterministic sampling by default). It resumes from a
-checkpoint and appends deduplicated mint-initialization candidates to JSONL.
-Use `--max-blocks 0` only when you explicitly intend to fetch every
-produced block in the window; a full day can involve a very large number of
-RPC requests and may exceed public endpoint limits.
+The collector timestamp-aligns the requested lookback. In its default bounded
+mode (`--max-blocks 100`), it deterministically samples at most that many
+candidate slot numbers and calls `getBlock` only for those slots; skipped
+slots can reduce the number of actual blocks fetched. This avoids indexing
+the entire slot range before applying the limit. It resumes from a checkpoint
+and appends deduplicated mint-initialization candidates to JSONL.
+Use `--max-blocks 0` only when you explicitly intend exhaustive discovery:
+that mode enumerates every produced slot using `getBlocks` chunks and may
+require hundreds of RPC requests for a one-day window, so public endpoints
+may rate-limit or time out. Bounded sampling is not exhaustive and can miss
+launches.
 
 Each output row contains the mint, launch slot, block time, transaction
 signature and an intentionally null label. This is discovery output only:
