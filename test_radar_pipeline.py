@@ -29,6 +29,14 @@ class IngestTests(unittest.TestCase):
         self.assertEqual(p["lp_mint"],"LP111")
         self.assertIn("Mint111",p["mints"])
         self.assertEqual(p["vaults"],["Vault111"])
+    def test_raydium_v4_initialize2_decoder(self):
+        a=[f"Account{i}" for i in range(21)]
+        tx={"transaction":{"message":{"instructions":[
+          {"programId":solana_ingest.RAYDIUM_V4,"data":"2","accounts":a}]}}}
+        p=solana_ingest.pool_info(tx,{solana_ingest.RAYDIUM_V4})
+        self.assertEqual(p["lp_mint"],a[7])
+        self.assertEqual(p["mints"],{a[8],a[9]})
+        self.assertEqual(p["vaults"],[a[10],a[11]])
     def test_pool_parser_ignores_unconfigured_program(self):
         tx={"transaction":{"message":{"instructions":[
           {"programId":"OTHER","parsed":{"type":"initializePool","info":{"tokenMint":"Mint111"}}}]}}}
