@@ -263,12 +263,13 @@ def main():
                 result=msg.get("params",{}).get("result",{}); value=result.get("value",{})
                 if value.get("err"):continue
                 slot=result.get("context",{}).get("slot"); sig=value.get("signature")
-                if slot is None or not sig or sig in seen:continue
                 pid=sub_program.get(msg.get("params",{}).get("subscription"))
+                key=(sig,pid)
+                if slot is None or not sig or key in seen:continue
                 logs=value.get("logs",[])
                 if pid in (TOKEN,TOKEN22) and not any("InitializeMint" in x for x in logs):continue
                 if pid in args.dex_program and not any(any(k in x.lower() for k in ("initialize","create","open")) for x in logs):continue
-                seen.add(sig)
+                seen.add(key)
                 try:tx=rpc(args.rpc,"getTransaction",[sig,{"encoding":"jsonParsed","commitment":"confirmed","maxSupportedTransactionVersion":0}])
                 except Exception:continue
                 if not tx:continue
