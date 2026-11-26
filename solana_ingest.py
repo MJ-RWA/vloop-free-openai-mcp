@@ -473,6 +473,20 @@ def main():
                                 record_lp_burn(burn_db,lp,slot,tx)
                                 emit(mint,launch,pool,pool_tx,tx,slot)
                     continue
+                # Locker notifications arrive independently from DEX and
+                # token notifications. Join them by the explicit LP mint and
+                # re-score with the lock transaction as the proof source.
+                if pid in args.lock_program:
+                    for ix in instructions(tx):
+                        typ,info=parsed_info(ix)
+                        lp=info.get("mint",info.get("lpMint"))
+                        if "lock" not in typ or not lp:continue
+                        saved=pool_by_lp.get(lp)
+                        if not saved:continue
+                        mint,launch,pool,pool_tx=saved
+                        if launch["slot"]<=slot<=launch["slot"]+15:
+                            emit(mint,launch,pool,pool_tx,tx,slot)
+                    continue
                 pool=pool_info(tx,set(args.dex_program)) if pid in args.dex_program else None
                 if pool:
                     for mint in pool["mints"]:
