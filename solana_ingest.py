@@ -10,6 +10,8 @@ from spl_rug_radar import score_launch
 TOKEN="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 TOKEN22="TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 RAYDIUM_V4="675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+PUMP_AMM="pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
+PUMP_CREATE_POOL=bytes((233,146,209,142,207,104,64,188))
 BURN={"1nc1nerator11111111111111111111111111111111","dead"}
 
 def rpc(url,method,params):
@@ -209,7 +211,16 @@ def pool_info(tx,dex_ids):
     for ix in instructions(tx):
         pid=ix.get("programId")
         typ,info=parsed_info(ix)
-        if pid in dex_ids and (any(w in typ for w in ("initialize","create","open")) or (pid==RAYDIUM_V4 and ix.get("data"))):
+        if pid in dex_ids and (any(w in typ for w in ("initialize","create","open")) or
+                               (pid in (RAYDIUM_V4,PUMP_AMM) and ix.get("data"))):
+            if pid==PUMP_AMM and ix.get("data"):
+                raw=b58decode(ix["data"]); a=ix.get("accounts",[])
+                # PumpSwap create_pool accounts follow the official IDL order:
+                # pool, config, creator, base mint, quote mint, LP mint,
+                # user accounts, then the two pool token vaults.
+                if raw[:8]==PUMP_CREATE_POOL and len(a)>=18:
+                    return {"mints":{a[3],a[4]},"vaults":[a[9],a[10]],
+                            "lp_mint":a[5]}
             mints={v for k,v in info.items() if "mint" in k.lower() and isinstance(v,str) and len(v)>30}
             vaults=[v for k,v in info.items() if ("vault" in k.lower() or "tokenaccount" in k.lower()) and isinstance(v,str)]
             lp=next((v for k,v in info.items() if "lp" in k.lower() and "mint" in k.lower() and isinstance(v,str)),None)
