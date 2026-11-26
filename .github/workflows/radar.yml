@@ -18,3 +18,30 @@ jobs:
         run: python -B -m unittest discover -s . -v
       - name: Enforce scorer size
         run: python -B -c "from pathlib import Path; n=Path('spl_rug_radar.py').stat().st_size; print(f'{n} bytes'); assert n <= 8192"
+
+  historical-rpc-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Probe sampled historical blocks (when secret is configured)
+        env:
+          HELIUS_RPC_URL: ${{ secrets.HELIUS_RPC_URL }}
+          SLOTS: "382619204,303713493,232538996,163465783"
+        run: |
+          if [ -z "$HELIUS_RPC_URL" ]; then
+            echo "HELIUS_RPC_URL is not configured; historical probe skipped."
+            exit 0
+          fi
+          python helius_history_probe.py --slots "$SLOTS" --timeout 60
+      - name: Upload historical probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-rpc-probe
+          path: helius_history_probe.json
+          if-no-files-found: ignore
+          retention-days: 14
