@@ -108,6 +108,11 @@ py -3.12 faithful_probe.py --slot 150000000 --slot 160000000 --timeout 90
 Or pass `--rpc` directly. Add `--address <PUBKEY>` only to diagnose address-history lookup; failure of that method does not prevent the bounded slot-scan path. The probe tests `getVersion`, `getFirstAvailableBlock`, `getSlot`, `getBlocks`, `getBlockTime`, `getBlock`, and a sample `getTransaction`. It first tries `jsonParsed`, then falls back to raw `json` and reports which encoding worked. Raw JSON availability means the historical block is retrievable, but it does not by itself provide parsed SPL instruction fields; raw instruction decoding is still required if `jsonParsed` is unavailable.
 
 Probe at least one known slot from each target epoch, including a slot whose signature and transaction metadata have been independently checked. A null response, unsupported method, missing transaction metadata, or a successful sample from only one epoch is not evidence of complete history. Save the JSON output with the reconstruction audit. Do not start large-scale collection until block coverage and transaction metadata are verified across the cohort's full date range.
+### CI and RPC rate limits
+
+The regular `SPL radar checks` workflow runs syntax checks, unit tests, and the scorer-size limit only. The historical RPC capability probe is kept in its own manually dispatched workflow so it does not consume the same Helius request budget as a reconstruction run.
+
+A recent concurrent probe recorded HTTP 429 responses for several historical samples. One sampled block was retrieved with complete transaction metadata; this is not evidence of general archive reliability. Run the manual probe separately and allow rate limits to clear before starting a reconstruction.
 ### Historical feature-row reconstruction
 
 The reconstruction pilot now attempts to emit a scorer-compatible feature_rows array in its JSON report and a historical_features.jsonl file for the backtest runner. It reconstructs token-account balances from pre/post token-balance metadata in the produced slots after mint initialization, parses mint/freeze authority changes, observes LP mint/burn instructions when a configured pool decoder exposes the LP mint, and computes early-activity counters over the launch-to-15-slot window.
