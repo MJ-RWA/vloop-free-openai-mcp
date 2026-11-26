@@ -101,6 +101,25 @@ class IngestTests(unittest.TestCase):
         sock=FakeSocket(frames)
         self.assertEqual(solana_ingest.ws_recv(sock),{"ok":True})
         self.assertEqual(len(sock.sent),1)
+    def test_launch_correlator_matches_pool_before_mint(self):
+        c=solana_ingest.LaunchCorrelator()
+        pool={"lp_mint":"LP","vaults":[],"mints":{"M"}}
+        tx={"transaction":{"signatures":["pool-sig"]}}
+        self.assertIsNone(c.add_pool("M",pool,tx,105,105))
+        match=c.add_mint("M",{"slot":100,"mint_tx":{}},100)
+        self.assertEqual(match,({"slot":100,"mint_tx":{}},pool,tx,105))
+        self.assertNotIn("M",c.pools)
+
+    def test_launch_correlator_matches_mint_before_pool_and_expires(self):
+        c=solana_ingest.LaunchCorrelator(window=15)
+        launch={"slot":100,"mint_tx":{}}
+        pool={"lp_mint":"LP","vaults":[],"mints":{"M"}}
+        self.assertIsNone(c.add_mint("M",launch,100))
+        self.assertEqual(c.add_pool("M",pool,{},115,115),(launch,pool,{},115))
+        self.assertIsNone(c.add_mint("STALE",{"slot":100,"mint_tx":{}},100))
+        c.add_pool("OTHER",pool,{},116,116)
+        self.assertNotIn("STALE",c.mints)
+
     def test_slot_metrics_counts_net_buys_and_launch_funders(self):
         def make(payer,delta):
             return {"transaction":{"message":{"accountKeys":[{"pubkey":payer,"signer":True}]}},
