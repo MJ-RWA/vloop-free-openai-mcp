@@ -28,6 +28,8 @@ The adapter intentionally refuses to infer LP lock verification from an address 
 
 Solana's standard JSON-RPC does not expose a universal decoded DEX-pool schema. Configure the exact venue program IDs and use parsed transaction instructions; some venues require a venue-specific decoder. The generic adapter cannot safely decode every binary DEX instruction. It cannot infer Jito bundle membership from ordinary RPC logs alone; it records same-slot buyer/funder concentration and same-wallet round trips, and leaves the explicit Jito bundle count at zero unless a provider-specific adapter supplies verified bundle metadata. Thin-liquidity/FDV and mutable metadata require a venue/metadata decoder and are not fabricated when unavailable.
 
+LP burn observations are persisted in a local SQLite journal (`lp_burn_journal.sqlite3` by default; override with `--burn-journal`). Successful parsed burn transactions are deduplicated by signature and retained up to the latest 64 per LP mint. On restart or WebSocket reconnect, the adapter can reload observations and aggregate only records within the launch's 15-slot window. Keep the journal file with the deployment if continuity across restarts is required; deleting it discards that history. The journal stores parsed transaction responses locally and should be treated as operational data.
+
 The adapter is read-only: it never signs or sends transactions. It requires an RPC endpoint that supports `logsSubscribe`, `getTransaction`, `getBlock`, `getProgramAccounts`, `getTokenSupply`, and `getTokenLargestAccounts`.
 
 ## Historical backtest and calibration
