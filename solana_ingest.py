@@ -203,12 +203,17 @@ def pool_info(tx,dex_ids):
             mints={v for k,v in info.items() if "mint" in k.lower() and isinstance(v,str) and len(v)>30}
             vaults=[v for k,v in info.items() if ("vault" in k.lower() or "tokenaccount" in k.lower()) and isinstance(v,str)]
             lp=next((v for k,v in info.items() if "lp" in k.lower() and "mint" in k.lower() and isinstance(v,str)),None)
+            # LP share mint is not either underlying pool asset. Excluding it
+            # prevents the LP mint's own InitializeMint from being correlated
+            # as the launch token.
+            if lp:mints.discard(lp)
             if not mints and pid==RAYDIUM_V4 and ix.get("data"):
                 raw=b58decode(ix["data"]); a=ix.get("accounts",[])
                 if raw and raw[0]==1 and len(a) in (19,21):
                     lp_i,coin_i,pc_i,vcoin_i,vpc_i=(6,7,8,9,10) if len(a)==19 else (7,8,9,10,11)
                     lp=a[lp_i];mints={a[coin_i],a[pc_i]};vaults=[a[vcoin_i],a[vpc_i]]
-            if not mints:mints=tx_mints(tx)
+            # Never substitute every transaction token balance for pool
+            # assets: routers/swaps can touch unrelated mints in the same tx.
             if mints:return {"mints":mints,"vaults":vaults,"lp_mint":lp}
     return None
 
