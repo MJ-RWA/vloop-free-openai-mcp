@@ -210,7 +210,7 @@ def slot_metrics_from_blocks(mint, start, end, blocks_by_slot):
         entries = block.get("transactions", [])
         funding = {}
         for entry in entries:
-            for ix in instructions(entry.get("transaction", {})):
+            for ix in instructions(entry):
                 typ, info = parsed_info(ix)
                 if typ == "transfer" and info.get("source") and info.get("destination"):
                     funding[info["destination"]] = info["source"]
@@ -314,7 +314,7 @@ def reconstruct_features(url, mint, launch, window, dex_programs, blocks_by_slot
                         "amount": int(row.get("uiTokenAmount", {}).get("amount", 0)),
                         "owner": row.get("owner")
                     }
-            for ix in instructions(tx):
+            for ix in instructions(entry):
                 typ, info = parsed_info(ix)
                 typ = typ.lower()
                 if typ in ("initializemint", "initializemint2") and info.get("mint") == mint:
