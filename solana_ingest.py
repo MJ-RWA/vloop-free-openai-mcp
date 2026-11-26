@@ -98,6 +98,12 @@ def launch_mints(tx):
         if typ in ("initializemint","initializemint2") and info.get("mint"):found.append(info["mint"])
     return found
 
+def lp_burn_mints(tx):
+    """Return LP mint addresses with explicit parsed burn instructions."""
+    return {info["mint"] for ix in instructions(tx)
+            for typ,info in [parsed_info(ix)]
+            if typ in ("burn","burnchecked") and info.get("mint")}
+
 def tx_mints(tx):
     meta=(tx or {}).get("meta",{})
     return {x.get("mint") for x in meta.get("postTokenBalances",[]) if x.get("mint")}
@@ -333,7 +339,8 @@ def main():
                 key=(sig,pid)
                 if slot is None or not sig or key in seen:continue
                 logs=value.get("logs",[])
-                if pid in (TOKEN,TOKEN22) and not any("InitializeMint" in x for x in logs):continue
+                if pid in (TOKEN,TOKEN22) and not any(
+                        "initializemint" in x.lower() or "burn" in x.lower() for x in logs):continue
                 if pid in args.dex_program and not any(any(k in x.lower() for k in ("initialize","create","open")) for x in logs):continue
                 seen[key]=slot
                 if len(seen)>20000:seen.pop(next(iter(seen)))
@@ -349,6 +356,14 @@ def main():
                                 pool_by_lp[pool["lp_mint"]]=(mint,launch,pool,pool_tx)
                                 if len(pool_by_lp)>10000:pool_by_lp.pop(next(iter(pool_by_lp)))
                             emit(mint,launch,pool,pool_tx,pool_tx,pool_slot)
+                    # LP tokens may be burned in a later transaction. Join the
+                    # explicit burn to the pool observed earlier, within the
+                    # same 15-slot launch window; never infer from supply deltas.
+                    for lp in lp_burn_mints(tx):
+                        saved=pool_by_lp.get(lp)
+                        if saved:
+                            mint,launch,pool,pool_tx=saved
+                            emit(mint,launch,pool,pool_tx,tx,slot)
                     continue
                 pool=pool_info(tx,set(args.dex_program)) if pid in args.dex_program else None
                 if pool:
