@@ -216,6 +216,43 @@ def account_info(url,key):
     r=rpc(url,"getAccountInfo",[key,{"encoding":"jsonParsed","commitment":"confirmed"}])
     return (r or {}).get("value")
 
+def mint_risk_features(info):
+    """Extract only explicit mint/account metadata; unknown extensions stay unknown.
+
+    For Token-2022 transfer fees, report the larger configured older/newer
+    basis-point value because RPC snapshots may straddle an epoch transition.
+    """
+    info=info if isinstance(info,dict) else {}
+    extensions=info.get("extensions") or []
+    if isinstance(extensions,dict):
+        extensions=[{"extension":k,"state":v} for k,v in extensions.items()]
+    mutable=info.get("isMutable",info.get("mutable",False))
+    fees=[]
+    for ext in extensions:
+        if not isinstance(ext,dict):continue
+        name=str(ext.get("extension","")).lower()
+        state=ext.get("state") or {}
+        if not isinstance(state,dict):continue
+        if "metadata" in name:
+            mutable=state.get("isMutable",state.get("mutable",mutable))
+        if "transferfee" in name:
+            for key in ("olderTransferFee","newerTransferFee"):
+                fee=state.get(key) or {}
+                if isinstance(fee,dict):
+                    try:fees.append(int(fee.get("transferFeeBasisPoints",0)))
+                    except (TypeError,ValueError):pass
+            try:fees.append(int(state.get("transferFeeBasisPoints",0)))
+            except (TypeError,ValueError):pass
+    # Some RPC/indexer parsers flatten extension state into the mint info.
+    for key in ("olderTransferFee","newerTransferFee"):
+        fee=info.get(key) or {}
+        if isinstance(fee,dict):
+            try:fees.append(int(fee.get("transferFeeBasisPoints",0)))
+            except (TypeError,ValueError):pass
+    return {"metadata_mutable":bool(mutable),
+            "transfer_fee_bps":max([0]+fees)}
+
+
 def holders(url,mint,vaults):
     totals={}
     for program in (TOKEN,TOKEN22):
@@ -365,7 +402,7 @@ def main():
             activity=slot_metrics(args.rpc,mint,launch["slot"],slot)
             event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
               "mint_authority_active":bool(mi.get("mintAuthority")),"freeze_authority_active":bool(mi.get("freezeAuthority")),
-              "holders":hs,"lp_vaults":pool["vaults"],"lp_burn_pct":burn,"lp_burn_verified":bv,
+              **mint_risk_features(mi),"holders":hs,"lp_vaults":pool["vaults"],"lp_burn_pct":burn,"lp_burn_verified":bv,
               "lp_lock_pct":lock,"lp_lock_days":days,"lp_lock_verified":lv,**activity}
             result=score_launch(event)
             if calibration and result["rug_probability"] is not None:
