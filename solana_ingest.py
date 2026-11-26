@@ -154,7 +154,7 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot):
 
 def slot_metrics(url,mint,start,end):
     """Count token-balance deltas across launch..pool slots; do not invent Jito labels."""
-    buys=[]; payers=set(); same_slot={}
+    buys=[]; payers=set(); payers0=set(); same_slot={}
     for slot in range(start,end+1):
         try:block=rpc(url,"getBlock",[slot,{"encoding":"jsonParsed","transactionDetails":"full","rewards":False,"maxSupportedTransactionVersion":0}])
         except Exception:continue
@@ -169,11 +169,11 @@ def slot_metrics(url,mint,start,end):
                 if x.get("mint")==mint:post[x.get("accountIndex")]=int(x.get("uiTokenAmount",{}).get("amount",0))
             delta=sum(post.get(i,0)-pre.get(i,0) for i in set(pre)|set(post))
             if delta>0:
-                buys.append(float(delta));payers.add(payer);same_slot[slot]=same_slot.get(slot,0)+1
+                buys.append(float(delta));payers.add(payer)\n                if slot==start:payers0.add(payer)\n                same_slot[slot]=same_slot.get(slot,0)+1
     n=len(buys);mean=sum(buys)/n if n else 0
     cv=(sum((x-mean)**2 for x in buys)/n)**.5/mean if mean else 1.0
     return {"slot0_buys":same_slot.get(start,0),"total_early_buys":n,
-      "unique_funders_in_slot0":len(payers),"buy_amount_cv":cv,
+      "unique_funders_in_slot0":len(payers0),"buy_amount_cv":cv,
       "jito_bundle_count":0,"wash_roundtrip_ratio":0.0}
 
 def main():
