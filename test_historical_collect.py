@@ -1,3 +1,4 @@
+import http.client
 import json
 import os
 import tempfile
@@ -36,6 +37,26 @@ class HistoricalCollectorTests(unittest.TestCase):
     def test_bounded_sampling_never_exceeds_window_population(self):
         self.assertEqual([10, 11, 12], historical_collect.sampled_slot_numbers(10, 12, 50, 7))
         self.assertEqual([], historical_collect.sampled_slot_numbers(10, 9, 5, 7))
+
+    def test_rpc_retries_incomplete_response_body(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"jsonrpc":"2.0","id":1,"result":"ok"}'
+
+        with patch.object(
+            historical_collect.urllib.request,
+            "urlopen",
+            side_effect=[http.client.IncompleteRead(b"partial", 10), Response()],
+        ) as urlopen, patch.object(historical_collect.time, "sleep"):
+            result = historical_collect.rpc("https://rpc.invalid", "getHealth", [])
+        self.assertEqual("ok", result)
+        self.assertEqual(2, urlopen.call_count)
 
     def test_checkpoint_round_trip(self):
         with tempfile.TemporaryDirectory() as folder:
