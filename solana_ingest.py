@@ -59,7 +59,9 @@ def ws_recv(s):
         mask=exact(s,4) if b&128 else None; data=exact(s,n)
         if mask:data=bytes(x^mask[i%4] for i,x in enumerate(data))
         if op==8:raise ConnectionError("WebSocket close frame")
-        if op==9:s.sendall(bytes([0x8a,len(data)])+data);continue
+        if op==9:
+            mask=os.urandom(4); payload=bytes(x^mask[i%4] for i,x in enumerate(data))
+            s.sendall(bytes([0x8a,0x80|len(data)])+mask+payload);continue
         if op==10:continue
         if op==1:return json.loads(data)
         if op not in (0,):continue
@@ -191,11 +193,12 @@ def main():
     if not args.dex_program:ap.error("at least one --dex-program is required; use the exact pool program IDs for your venues")
     programs=[TOKEN,TOKEN22]+args.dex_program
     while True:
-        s=ws_connect(args.ws)
-        for i,pid in enumerate(programs,1):
-            ws_send(s,{"jsonrpc":"2.0","id":i,"method":"logsSubscribe","params":[{"mentions":[pid]},{"commitment":"confirmed"}]})
+        s=None
         pending={}; subs=set()
         try:
+            s=ws_connect(args.ws)
+            for i,pid in enumerate(programs,1):
+                ws_send(s,{"jsonrpc":"2.0","id":i,"method":"logsSubscribe","params":[{"mentions":[pid]},{"commitment":"confirmed"}]})
             while True:
                 msg=ws_recv(s)
                 if "id" in msg and "result" in msg:subs.add(msg["result"]);continue
@@ -229,6 +232,7 @@ def main():
                     print(json.dumps(result,separators=(",",":")),flush=True)
         except (ConnectionError,OSError,TimeoutError) as e:
             print("stream reconnect:",e,file=sys.stderr);time.sleep(2)
-        finally:s.close()
+        finally:
+            if s:s.close()
 
 if __name__=="__main__":main()
