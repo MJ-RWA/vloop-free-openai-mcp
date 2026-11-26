@@ -68,5 +68,37 @@ class HistoricalProgramDiscoveryTests(unittest.TestCase):
         self.assertEqual(mocked_rpc.call_count, 3)
 
 
+    @patch("historical_reconstruction_pilot.rpc")
+    def test_reconstructs_holders_and_authorities_from_historical_window(self, mocked_rpc):
+        mint = "MINT_ADDRESS"
+        block = {"transactions": [{
+            "transaction": {"signatures": ["launch-sig"], "message": {
+                "accountKeys": [{"pubkey": "TOKEN_ACCOUNT", "signer": False}],
+                "instructions": [{
+                    "programId": "TOKEN_PROGRAM",
+                    "parsed": {"type": "initializeMint", "info": {
+                        "mint": mint, "mintAuthority": "AUTHORITY",
+                        "freezeAuthority": None
+                    }}
+                }]
+            }},
+            "meta": {"preTokenBalances": [], "postTokenBalances": [{
+                "mint": mint, "accountIndex": 0, "owner": "HOLDER",
+                "uiTokenAmount": {"amount": "125"}
+            }], "innerInstructions": []}
+        }]}
+        mocked_rpc.return_value = (block, None)
+        result = pilot.reconstruct_features(
+            "https://rpc.invalid", mint, {"slot": 100},
+            {"produced_slots": [100]}, set()
+        )
+        self.assertEqual(result["features"]["holders"], {"HOLDER": 125})
+        self.assertTrue(result["features"]["mint_authority_active"])
+        self.assertFalse(result["features"]["freeze_authority_active"])
+        self.assertEqual(result["features"]["launch_slot"], 100)
+        self.assertEqual(result["features"]["event_slot"], 115)
+        self.assertTrue(result["score"]["in_window"])
+
+
 if __name__ == "__main__":
     unittest.main()
