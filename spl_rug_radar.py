@@ -111,7 +111,9 @@ def score_launch(ev):
     lock_proof = ev.lp_lock_pct * min(1, ev.lp_lock_days / 90) if ev.lp_lock_verified else 0.0
     lp_protection = min(1, burn_proof / 100 + lock_proof / 100)
     liq_ratio = ev.initial_liq_sol / ev.fdv_sol if ev.fdv_sol else 0.0
-    thin = 1.0 if liq_ratio < 0.03 else max(0, 1 - (liq_ratio - 0.03) / 0.12)
+    thin = (1.0 if liq_ratio < 0.03 else max(0, 1 - (liq_ratio - 0.03) / 0.12)) if ev.initial_liq_sol and ev.fdv_sol else 0.0
+    if not ev.initial_liq_sol or not ev.fdv_sol:
+        flags.append('LIQUIDITY_DEPTH_UNAVAILABLE')
     lp = min(1, 0.72 * (1 - lp_protection) + 0.28 * thin)
     if not (ev.lp_burn_verified or ev.lp_lock_verified):
         flags.append('LP_PROTECTION_UNVERIFIED')
