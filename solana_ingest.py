@@ -114,6 +114,15 @@ def holders(url,mint,vaults):
             owner=data.get("owner"); amount=data.get("tokenAmount",{}).get("amount","0")
             if owner and row.get("pubkey") not in vaults:
                 totals[owner]=totals.get(owner,0)+int(amount)
+    if not totals:
+        try:largest=rpc(url,"getTokenLargestAccounts",[mint])["value"]
+        except Exception:largest=[]
+        for item in largest:
+            try:
+                data=account_info(url,item["address"])["data"]["parsed"]["info"]
+                owner=data["owner"]
+                if item["address"] not in vaults:totals[owner]=totals.get(owner,0)+int(item["amount"])
+            except Exception:pass
     return totals
 
 def lp_proof(url,tx,lp_mint,lock_ids,slot):
@@ -135,8 +144,8 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot):
             owner=ai["data"]["parsed"]["info"]["owner"]
             if owner in BURN:burned+=int(item["amount"])
         except Exception:pass
-    if initial and initial>=supply+burned:
-        pct=100*max(0,initial-supply)/initial
+    if initial and initial>=supply:
+        pct=min(100,100*max(0,initial-supply+burned)/initial)
         burn_ok=pct>0
     else:pct=0.0;burn_ok=False
     locked=0.0;days=0;lock_ok=False
@@ -191,21 +200,27 @@ def main():
     ap.add_argument("--lock-program",action="append",default=[])
     args=ap.parse_args()
     if not args.dex_program:ap.error("at least one --dex-program is required; use the exact pool program IDs for your venues")
-    programs=[TOKEN,TOKEN22]+args.dex_program
+    programs=[TOKEN,TOKEN22]+args.dex_program+args.lock_program
     while True:
         s=None
-        pending={}; subs=set()
+        pending={}; sub_program={}; seen=set()
         try:
             s=ws_connect(args.ws)
             for i,pid in enumerate(programs,1):
                 ws_send(s,{"jsonrpc":"2.0","id":i,"method":"logsSubscribe","params":[{"mentions":[pid]},{"commitment":"confirmed"}]})
             while True:
                 msg=ws_recv(s)
-                if "id" in msg and "result" in msg:subs.add(msg["result"]);continue
+                if "id" in msg and "result" in msg:
+                    sub_program[msg["result"]]=programs[msg["id"]-1];continue
                 result=msg.get("params",{}).get("result",{}); value=result.get("value",{})
                 if value.get("err"):continue
                 slot=result.get("context",{}).get("slot"); sig=value.get("signature")
-                if slot is None or not sig:continue
+                if slot is None or not sig or sig in seen:continue
+                pid=sub_program.get(msg.get("params",{}).get("subscription"))
+                logs=value.get("logs",[])
+                if pid in (TOKEN,TOKEN22) and not any("InitializeMint" in x for x in logs):continue
+                if pid in args.dex_program and not any(any(k in x.lower() for k in ("initialize","create","open")) for x in logs):continue
+                seen.add(sig)
                 try:tx=rpc(args.rpc,"getTransaction",[sig,{"encoding":"jsonParsed","commitment":"confirmed","maxSupportedTransactionVersion":0}])
                 except Exception:continue
                 if not tx:continue
