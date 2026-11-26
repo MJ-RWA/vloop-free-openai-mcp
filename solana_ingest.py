@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Read-only Solana RPC/WebSocket launch ingester; emits scorer JSON for mint+pool events.
+Uses only Python 3.12 stdlib. Configure venue program IDs with --dex-program.
+"""
+import argparse,base64,hashlib,json,os,random,socket,ssl,struct,sys,time
+from urllib.parse import urlparse
+from urllib.request import Request,urlopen
+from spl_rug_radar import score_launch
+
+TOKEN="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+TOKEN22="TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+BURN={"1nc1nerator11111111111111111111111111111111","dead"}
+
+def rpc(url,method,params):
+    body=json.dumps({"jsonrpc":"2.0","id":1,"method":method,"params":params}).encode()
+    req=Request(url,data=body,headers={"Content-Type":"application/json"})
+    with urlopen(req,timeout=20) as r: out=json.load(r)
+    if "error" in out: raise RuntimeError(out["error"])
+    return out.get("result")
+
+def exact(sock,n):
+    b=b""
+    while len(b)<n:
+        x=sock.recv(n-len(b))
+        if not x: raise ConnectionError("WebSocket closed")
+        b+=x
+    return b
+
+def ws_connect(url):
+    u=urlparse(url); port=u.port or (443 if u.scheme=="wss" else 80)
+    s=socket.create_connection((u.hostname,port),timeout=30)
+    if u.scheme=="wss": s=ssl.create_default_context().wrap_socket(s,server_hostname=u.hostname)
+    key=base64.b64encode(os.urandom(16)).decode()
+    path=u.path or "/"
+    if u.query:path+="?"+u.query
+    s.sendall((f"GET {path} HTTP/1.1\r\nHost: {u.netloc}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+    head=b""
+    while b"\r\n\r\n" not in head: head+=s.recv(1)
+    if b" 101 " not in head: raise ConnectionError("WebSocket upgrade rejected: "+head.decode(errors="replace"))
+    accept=base64.b64encode(hashlib.sha1((key+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest())
+    if b"Sec-WebSocket-Accept: "+accept.lower() not in head.lower(): raise ConnectionError("bad WebSocket accept")
+    return s
+
+def ws_send(s,obj):
+    b=json.dumps(obj,separators=(",",":")).encode(); n=len(b)
+    h=bytes([0x81,0x80|(n if n<126 else 126 if n<65536 else 127)])
+    if n>=126:h+=struct.pack("!H" if n<65536 else "!Q",n)
+    mask=os.urandom(4); s.sendall(h+mask+bytes(x^mask[i%4] for i,x in enumerate(b)))
+
+def ws_recv(s):
+    while True:
+        a,b=exact(s,2); op=a&15; n=b&127
+        if n==126:n=struct.unpack("!H",exact(s,2))[0]
+        elif n==127:n=struct.unpack("!Q",exact(s,8))[0]
+        mask=exact(s,4) if b&128 else None; data=exact(s,n)
+        if mask:data=bytes(x^mask[i%4] for i,x in enumerate(data))
+        if op==8:raise ConnectionError("WebSocket close frame")
+        if op==9:s.sendall(bytes([0x8a,len(data)])+data);continue
+        if op==10:continue
+        if op==1:return json.loads(data)
+        if op not in (0,):continue
+
+def instructions(tx):
+    msg=(tx or {}).get("transaction",{}).get("message",{})
+    out=list(msg.get("instructions",[]))
+    for group in (tx or {}).get("meta",{}).get("innerInstructions",[]):out.extend(group.get("instructions",[]))
+    return out
+
+def parsed_info(ix):
+    p=ix.get("parsed")
+    return (p.get("type","").lower(),p.get("info",{})) if isinstance(p,dict) else ("",{})
+
+def launch_mints(tx):
+    found=[]
+    for ix in instructions(tx):
+        typ,info=parsed_info(ix)
+        if typ in ("initializemint","initializemint2") and info.get("mint"):found.append(info["mint"])
+    return found
+
+def tx_mints(tx):
+    meta=(tx or {}).get("meta",{})
+    return {x.get("mint") for x in meta.get("postTokenBalances",[]) if x.get("mint")}
+
+def pool_info(tx,dex_ids):
+    for ix in instructions(tx):
+        pid=ix.get("programId")
+        typ,info=parsed_info(ix)
+        if pid in dex_ids and (any(w in typ for w in ("initialize","create","open")) or info):
+            mints={v for k,v in info.items() if "mint" in k.lower() and isinstance(v,str) and len(v)>30}
+            vaults=[v for k,v in info.items() if ("vault" in k.lower() or "tokenaccount" in k.lower()) and isinstance(v,str)]
+            lp=next((v for k,v in info.items() if "lp" in k.lower() and "mint" in k.lower() and isinstance(v,str)),None)
+            if not mints:mints=tx_mints(tx)
+            if mints:return {"mints":mints,"vaults":vaults,"lp_mint":lp}
+    return None
+
+def account_info(url,key):
+    r=rpc(url,"getAccountInfo",[key,{"encoding":"jsonParsed","commitment":"confirmed"}])
+    return (r or {}).get("value")
+
+def holders(url,mint,vaults):
+    totals={}
+    for program in (TOKEN,TOKEN22):
+        try:
+            rows=rpc(url,"getProgramAccounts",[program,{"encoding":"jsonParsed","commitment":"confirmed","filters":[{"memcmp":{"offset":0,"bytes":mint}}]}]) or []
+        except Exception:rows=[]
+        for row in rows:
+            data=row.get("account",{}).get("data",{}).get("parsed",{}).get("info",{})
+            owner=data.get("owner"); amount=data.get("tokenAmount",{}).get("amount","0")
+            if owner and row.get("pubkey") not in vaults:
+                totals[owner]=totals.get(owner,0)+int(amount)
+    return totals
+
+def lp_proof(url,tx,lp_mint,lock_ids,slot):
+    if not lp_mint:return 0.0,False,0.0,0,False
+    initial=0
+    for ix in instructions(tx):
+        typ,info=parsed_info(ix)
+        if typ in ("mintto","minttochecked") and info.get("mint")==lp_mint:
+            try:initial+=int(info.get("amount",0))
+            except (ValueError,TypeError):pass
+    try:
+        supply=int(rpc(url,"getTokenSupply",[lp_mint])["value"]["amount"])
+        largest=rpc(url,"getTokenLargestAccounts",[lp_mint])["value"]
+    except Exception:return 0.0,False,0.0,0,False
+    burned=0
+    for item in largest:
+        try:
+            ai=account_info(url,item["address"])
+            owner=ai["data"]["parsed"]["info"]["owner"]
+            if owner in BURN:burned+=int(item["amount"])
+        except Exception:pass
+    if initial and initial>=supply+burned:
+        pct=100*max(0,initial-supply)/initial
+        burn_ok=pct>0
+    else:pct=0.0;burn_ok=False
+    locked=0.0;days=0;lock_ok=False
+    # A lock is accepted only from a configured program's parsed lock instruction
+    # carrying the LP mint, amount and a future unlock timestamp.
+    try:now=rpc(url,"getBlockTime",[slot])
+    except Exception:now=None
+    if now:
+        for ix in instructions(tx):
+            typ,info=parsed_info(ix)
+            if ix.get("programId") in lock_ids and "lock" in typ and info.get("mint",info.get("lpMint"))==lp_mint:
+                expiry=info.get("unlockTime",info.get("unlockTimestamp"))
+                amount=info.get("amount")
+                try:
+                    if int(expiry)>now and initial and amount:
+                        locked=max(locked,100*int(amount)/initial);days=max(days,int((int(expiry)-now)/86400));lock_ok=True
+                except (ValueError,TypeError):pass
+    return min(100,pct),burn_ok,min(100,locked),days,lock_ok
+
+def main():
+    ap=argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--rpc",default=os.getenv("SOLANA_RPC_URL","https://api.mainnet-beta.solana.com"))
+    ap.add_argument("--ws",default=os.getenv("SOLANA_WS_URL","wss://api.mainnet-beta.solana.com"))
+    ap.add_argument("--dex-program",action="append",default=[])
+    ap.add_argument("--lock-program",action="append",default=[])
+    args=ap.parse_args()
+    if not args.dex_program:ap.error("at least one --dex-program is required; use the exact pool program IDs for your venues")
+    programs=[TOKEN,TOKEN22]+args.dex_program
+    while True:
+        s=ws_connect(args.ws)
+        for i,pid in enumerate(programs,1):
+            ws_send(s,{"jsonrpc":"2.0","id":i,"method":"logsSubscribe","params":[{"mentions":[pid]},{"commitment":"confirmed"}]})
+        pending={}; subs=set()
+        try:
+            while True:
+                msg=ws_recv(s)
+                if "id" in msg and "result" in msg:subs.add(msg["result"]);continue
+                result=msg.get("params",{}).get("result",{}); value=result.get("value",{})
+                if value.get("err"):continue
+                slot=result.get("context",{}).get("slot"); sig=value.get("signature")
+                if slot is None or not sig:continue
+                try:tx=rpc(args.rpc,"getTransaction",[sig,{"encoding":"jsonParsed","commitment":"confirmed","maxSupportedTransactionVersion":0}])
+                except Exception:continue
+                if not tx:continue
+                for mint in launch_mints(tx):pending[mint]={"slot":slot,"mint_tx":tx}
+                pool=pool_info(tx,set(args.dex_program))
+                if not pool:continue
+                for mint in pool["mints"]:
+                    launch=pending.get(mint)
+                    if not launch:continue
+                    age=slot-launch["slot"]
+                    if age<0 or age>15:continue
+                    ai=account_info(args.rpc,mint)
+                    try:mi=ai["data"]["parsed"]["info"]
+                    except (TypeError,KeyError):continue
+                    hs=holders(args.rpc,mint,set(pool["vaults"]))
+                    burn,bv,lock,days,lv=lp_proof(args.rpc,tx,pool["lp_mint"],set(args.lock_program),slot)
+                    event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
+                      "mint_authority_active":bool(mi.get("mintAuthority")),"freeze_authority_active":bool(mi.get("freezeAuthority")),
+                      "holders":hs,"lp_vaults":pool["vaults"],"lp_burn_pct":burn,"lp_burn_verified":bv,
+                      "lp_lock_pct":lock,"lp_lock_days":days,"lp_lock_verified":lv}
+                    result=score_launch(event)
+                    result["ingestion"]={"signature":sig,"pool_programs":args.dex_program,"source":"Solana JSON-RPC WebSocket + parsed transaction"}
+                    print(json.dumps(result,separators=(",",":")),flush=True)
+        except (ConnectionError,OSError,TimeoutError) as e:
+            print("stream reconnect:",e,file=sys.stderr);time.sleep(2)
+        finally:s.close()
+
+if __name__=="__main__":main()
