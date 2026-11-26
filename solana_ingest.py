@@ -341,7 +341,7 @@ def main():
             try:mi=ai["data"]["parsed"]["info"]
             except (TypeError,KeyError):return
             hs=holders(args.rpc,mint,set(pool["vaults"]))
-            burn_txs=load_lp_burns(burn_db,pool["lp_mint"],launch["slot"],launch["slot"]+15)
+            burn_txs=load_lp_burns(burn_db,pool["lp_mint"],launch["slot"],min(slot,launch["slot"]+15))
             burn,bv,lock,days,lv=lp_proof(args.rpc,pool_tx,pool["lp_mint"],set(args.lock_program),slot,event_tx,burn_txs)
             activity=slot_metrics(args.rpc,mint,launch["slot"],slot)
             event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
