@@ -48,7 +48,7 @@ Run:
 python backtest.py historical_launches.jsonl --min-samples 50 --calibration calibration.json
 ```
 
-Rows are sorted by launch slot; the first 70% are used to fit a pool-adjacent-violators isotonic map and the final 30% are a holdout. The report includes confusion counts, precision, recall, F1, Brier score and 10-bin ECE for raw and calibrated holdout predictions. The generated `calibration.json` is applied with:
+Rows are sorted by launch slot; the first 70% are used to fit a pool-adjacent-violators isotonic map and the final 30% are a holdout. The report includes confusion counts, precision, recall, F1, Brier score, 10-bin ECE, tie-aware ROC AUC and average precision for raw and calibrated holdout predictions. The chronological split keeps every launch from the same slot on one side of the boundary, preventing same-slot launches from leaking across train and holdout; the resulting split is approximately 70/30. The generated `calibration.json` is applied with:
 
 ```sh
 echo '{"mint":"...","launch_slot":100,"event_slot":110}' | python calibrated_scorer.py calibration.json
