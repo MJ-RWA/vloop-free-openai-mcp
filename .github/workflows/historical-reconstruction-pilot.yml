@@ -15,6 +15,10 @@ on:
       - ".github/workflows/historical-reconstruction-pilot.yml"
       - "historical_reconstruction_pilot.py"
 
+concurrency:
+  group: historical-reconstruction-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
