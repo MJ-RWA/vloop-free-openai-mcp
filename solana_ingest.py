@@ -38,7 +38,8 @@ def ws_connect(url):
     while b"\r\n\r\n" not in head: head+=s.recv(1)
     if b" 101 " not in head: raise ConnectionError("WebSocket upgrade rejected: "+head.decode(errors="replace"))
     accept=base64.b64encode(hashlib.sha1((key+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest())
-    if b"Sec-WebSocket-Accept: "+accept.lower() not in head.lower(): raise ConnectionError("bad WebSocket accept")
+    headers={line.split(b":",1)[0].strip().lower():line.split(b":",1)[1].strip() for line in head.split(b"\\r\\n")[1:] if b":" in line}
+    if headers.get(b"sec-websocket-accept")!=accept: raise ConnectionError("bad WebSocket accept")
     return s
 
 def ws_send(s,obj):
@@ -150,6 +151,31 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot):
                 except (ValueError,TypeError):pass
     return min(100,pct),burn_ok,min(100,locked),days,lock_ok
 
+
+def slot_metrics(url,mint,start,end):
+    """Count token-balance deltas across launch..pool slots; do not invent Jito labels."""
+    buys=[]; payers=set(); same_slot={}
+    for slot in range(start,end+1):
+        try:block=rpc(url,"getBlock",[slot,{"encoding":"jsonParsed","transactionDetails":"full","rewards":False,"maxSupportedTransactionVersion":0}])
+        except Exception:continue
+        for entry in (block or {}).get("transactions",[]):
+            tx=entry.get("transaction",{}); meta=entry.get("meta") or {}
+            keys=tx.get("message",{}).get("accountKeys",[])
+            payer=(keys[0].get("pubkey") if keys and isinstance(keys[0],dict) else keys[0] if keys else None)
+            pre={}; post={}
+            for x in meta.get("preTokenBalances",[]):
+                if x.get("mint")==mint:pre[x.get("accountIndex")]=int(x.get("uiTokenAmount",{}).get("amount",0))
+            for x in meta.get("postTokenBalances",[]):
+                if x.get("mint")==mint:post[x.get("accountIndex")]=int(x.get("uiTokenAmount",{}).get("amount",0))
+            delta=sum(post.get(i,0)-pre.get(i,0) for i in set(pre)|set(post))
+            if delta>0:
+                buys.append(float(delta));payers.add(payer);same_slot[slot]=same_slot.get(slot,0)+1
+    n=len(buys);mean=sum(buys)/n if n else 0
+    cv=(sum((x-mean)**2 for x in buys)/n)**.5/mean if mean else 1.0
+    return {"slot0_buys":same_slot.get(start,0),"total_early_buys":n,
+      "unique_funders_in_slot0":len(payers),"buy_amount_cv":cv,
+      "jito_bundle_count":0,"wash_roundtrip_ratio":0.0}
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--rpc",default=os.getenv("SOLANA_RPC_URL","https://api.mainnet-beta.solana.com"))
@@ -188,10 +214,11 @@ def main():
                     except (TypeError,KeyError):continue
                     hs=holders(args.rpc,mint,set(pool["vaults"]))
                     burn,bv,lock,days,lv=lp_proof(args.rpc,tx,pool["lp_mint"],set(args.lock_program),slot)
+                    activity=slot_metrics(args.rpc,mint,launch["slot"],slot)
                     event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
                       "mint_authority_active":bool(mi.get("mintAuthority")),"freeze_authority_active":bool(mi.get("freezeAuthority")),
                       "holders":hs,"lp_vaults":pool["vaults"],"lp_burn_pct":burn,"lp_burn_verified":bv,
-                      "lp_lock_pct":lock,"lp_lock_days":days,"lp_lock_verified":lv}
+                      "lp_lock_pct":lock,"lp_lock_days":days,"lp_lock_verified":lv,**activity}
                     result=score_launch(event)
                     result["ingestion"]={"signature":sig,"pool_programs":args.dex_program,"source":"Solana JSON-RPC WebSocket + parsed transaction"}
                     print(json.dumps(result,separators=(",",":")),flush=True)
