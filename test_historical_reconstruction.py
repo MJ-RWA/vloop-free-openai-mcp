@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import historical_reconstruction_pilot as pilot
 
@@ -32,6 +33,39 @@ class HistoricalProgramDiscoveryTests(unittest.TestCase):
         programs, types = pilot.instruction_programs(tx)
         self.assertEqual(programs, {"DEX_COMPILED"})
         self.assertEqual(types, set())
+
+
+    @patch("historical_reconstruction_pilot.rpc")
+    def test_mint_init_search_checks_oldest_transactions_first(self, mocked_rpc):
+        mint = "MINT_ADDRESS"
+        newest_page = [
+            {"signature": "newest", "slot": 30, "blockTime": 300},
+            {"signature": "middle", "slot": 20, "blockTime": 200},
+        ]
+        oldest_page = [
+            {"signature": "oldest", "slot": 10, "blockTime": 100},
+        ]
+
+        def rpc_side_effect(url, method, params):
+            if method == "getSignaturesForAddress":
+                if len([x for x in mocked_rpc.call_args_list if x.args[1] == "getSignaturesForAddress"]) == 1:
+                    return newest_page, None
+                return oldest_page, None
+            if method == "getTransaction":
+                self.assertEqual(params[0], "oldest")
+                return {
+                    "transaction": {"message": {"instructions": [{
+                        "parsed": {"type": "initializeMint2", "info": {"mint": mint}}
+                    }]}}
+                }, None
+            self.fail("unexpected RPC method: " + method)
+
+        mocked_rpc.side_effect = rpc_side_effect
+        result, inspected, error = pilot.find_mint_init("https://rpc.invalid", mint)
+        self.assertIsNone(error)
+        self.assertEqual(inspected, 1)
+        self.assertEqual(result, {"slot": 10, "signature": "oldest", "block_time": 100})
+        self.assertEqual(mocked_rpc.call_count, 3)
 
 
 if __name__ == "__main__":
