@@ -167,30 +167,42 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot):
 
 
 def slot_metrics(url,mint,start,end):
-    """Count token-balance deltas across launch..pool slots; do not invent Jito labels."""
-    buys=[]; payers=set(); payers0=set(); same_slot={}
+    """Measure early buys, shared SOL funders and same-wallet round trips."""
+    buys=[]; funders0=set(); same_slot={}; buyers=set(); sellers=set()
     for slot in range(start,end+1):
         try:block=rpc(url,"getBlock",[slot,{"encoding":"jsonParsed","transactionDetails":"full","rewards":False,"maxSupportedTransactionVersion":0}])
         except Exception:continue
-        for entry in (block or {}).get("transactions",[]):
+        entries=(block or {}).get("transactions",[]); funding={}
+        for entry in entries:
+            for ix in instructions(entry.get("transaction",{})):
+                typ,info=parsed_info(ix)
+                if typ=="transfer" and info.get("source") and info.get("destination"):
+                    funding[info["destination"]]=info["source"]
+        for entry in entries:
             tx=entry.get("transaction",{}); meta=entry.get("meta") or {}
             keys=tx.get("message",{}).get("accountKeys",[])
             payer=(keys[0].get("pubkey") if keys and isinstance(keys[0],dict) else keys[0] if keys else None)
             pre={}; post={}
             for x in meta.get("preTokenBalances",[]):
-                if x.get("mint")==mint:pre[x.get("accountIndex")]=int(x.get("uiTokenAmount",{}).get("amount",0))
+                if x.get("mint")==mint:pre[x.get("accountIndex")]=(int(x.get("uiTokenAmount",{}).get("amount",0)),x.get("owner"))
             for x in meta.get("postTokenBalances",[]):
-                if x.get("mint")==mint:post[x.get("accountIndex")]=int(x.get("uiTokenAmount",{}).get("amount",0))
-            delta=sum(post.get(i,0)-pre.get(i,0) for i in set(pre)|set(post))
+                if x.get("mint")==mint:post[x.get("accountIndex")]=(int(x.get("uiTokenAmount",{}).get("amount",0)),x.get("owner"))
+            delta=0
+            for i in set(pre)|set(post):
+                before,bo=pre.get(i,(0,None)); after,ao=post.get(i,(0,None))
+                d=after-before; owner=ao or bo
+                if d>0:
+                    delta+=d
+                    if owner:buyers.add(owner)
+                elif d<0 and owner:sellers.add(owner)
             if delta>0:
-                buys.append(float(delta));payers.add(payer)
-                if slot==start:payers0.add(payer)
-                same_slot[slot]=same_slot.get(slot,0)+1
+                buys.append(float(delta));same_slot[slot]=same_slot.get(slot,0)+1
+                if slot==start:funders0.add(funding.get(payer,payer))
     n=len(buys);mean=sum(buys)/n if n else 0
     cv=(sum((x-mean)**2 for x in buys)/n)**.5/mean if mean else 1.0
     return {"slot0_buys":same_slot.get(start,0),"total_early_buys":n,
-      "unique_funders_in_slot0":len(payers0),"buy_amount_cv":cv,
-      "jito_bundle_count":0,"wash_roundtrip_ratio":0.0}
+      "unique_funders_in_slot0":len(funders0),"buy_amount_cv":cv,
+      "jito_bundle_count":0,"wash_roundtrip_ratio":len(buyers&sellers)/max(1,len(buyers))}
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
