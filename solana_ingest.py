@@ -87,11 +87,18 @@ def tx_mints(tx):
     meta=(tx or {}).get("meta",{})
     return {x.get("mint") for x in meta.get("postTokenBalances",[]) if x.get("mint")}
 
+def b58decode(value):
+    alphabet="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    n=0
+    for ch in value:n=n*58+alphabet.index(ch)
+    raw=n.to_bytes((n.bit_length()+7)//8,"big") if n else b""
+    return b"\\0"*(len(value)-len(value.lstrip("1")))+raw
+
 def pool_info(tx,dex_ids):
     for ix in instructions(tx):
         pid=ix.get("programId")
         typ,info=parsed_info(ix)
-        if pid in dex_ids and (any(w in typ for w in ("initialize","create","open")) or info):
+        if pid in dex_ids and (any(w in typ for w in ("initialize","create","open")) or info or (pid==RAYDIUM_V4 and ix.get("data"))):
             mints={v for k,v in info.items() if "mint" in k.lower() and isinstance(v,str) and len(v)>30}
             vaults=[v for k,v in info.items() if ("vault" in k.lower() or "tokenaccount" in k.lower()) and isinstance(v,str)]
             lp=next((v for k,v in info.items() if "lp" in k.lower() and "mint" in k.lower() and isinstance(v,str)),None)
