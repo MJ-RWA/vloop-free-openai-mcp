@@ -211,6 +211,7 @@ def reconstruct_features(url, mint, launch, window, dex_programs):
     lp_mints = set()
     lp_initial = defaultdict(int)
     lp_burned = defaultdict(int)
+    lp_token_ops = []
     lp_vaults = []
     pool_event_count = 0
     for slot in window.get("produced_slots", []):
@@ -259,42 +260,26 @@ def reconstruct_features(url, mint, launch, window, dex_programs):
                         mint_authority = info.get("newAuthority") is not None
                     elif "freeze" in authority_type:
                         freeze_authority = info.get("newAuthority") is not None
-                if typ in ("mintto", "minttochecked") and info.get("mint"):
-                    if info.get("mint") in lp_mints:
-                        try: lp_initial[info["mint"]] += int(info.get("amount", 0))
-                        except (ValueError, TypeError): pass
-                if typ in ("burn", "burnchecked") and info.get("mint"):
-                    if info.get("mint") in lp_mints:
-                        try: lp_burned[info["mint"]] += int(info.get("amount", 0))
-                        except (ValueError, TypeError): pass
+                if typ in ("mintto", "minttochecked", "burn", "burnchecked") and info.get("mint"):
+                    try:
+                        lp_token_ops.append((info["mint"], typ, int(info.get("amount", 0))))
+                    except (ValueError, TypeError):
+                        pass
             pool = pool_info(entry, dex_programs)
             if pool and mint in pool.get("mints", set()):
                 pool_event_count += 1
                 if pool.get("lp_mint"):
                     lp_mints.add(pool["lp_mint"])
                 lp_vaults = pool.get("vaults", []) or lp_vaults
-    # Re-scan pool-related LP mint/burn instructions after LP mints are known.
-    # LP burns are only reported when explicit mint and burn instructions are
-    # observed in this same 15-slot history.
-    if lp_mints:
-        for slot in window.get("produced_slots", []):
-            block, error = rpc(url, "getBlock", [slot, {
-                "encoding": "jsonParsed", "transactionDetails": "full",
-                "rewards": False, "maxSupportedTransactionVersion": 0
-            }])
-            if error or not block: continue
-            for entry in block.get("transactions", []):
-                for ix in instructions(entry.get("transaction", {})):
-                    typ, info = parsed_info(ix)
-                    token = info.get("mint")
-                    if token not in lp_mints: continue
-                    try:
-                        if typ.lower() in ("mintto", "minttochecked"):
-                            lp_initial[token] += int(info.get("amount", 0))
-                        elif typ.lower() in ("burn", "burnchecked"):
-                            lp_burned[token] += int(info.get("amount", 0))
-                    except (ValueError, TypeError):
-                        pass
+    # Apply observed LP mint/burn operations after discovering the LP mint
+    # from a pool initialization anywhere in the same historical window.
+    for token, typ, amount in lp_token_ops:
+        if token not in lp_mints:
+            continue
+        if typ in ("mintto", "minttochecked"):
+            lp_initial[token] += amount
+        elif typ in ("burn", "burnchecked"):
+            lp_burned[token] += amount
     holders = {}
     excluded = set(lp_vaults)
     for address, state in account_state.items():
