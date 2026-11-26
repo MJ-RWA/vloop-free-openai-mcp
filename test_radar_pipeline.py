@@ -41,6 +41,22 @@ class IngestTests(unittest.TestCase):
         tx={"transaction":{"message":{"instructions":[
           {"programId":"OTHER","parsed":{"type":"initializePool","info":{"tokenMint":"Mint111111111111111111111111111111111"}}}]}}}
         self.assertIsNone(solana_ingest.pool_info(tx,{"DEX"}))
+    def test_lp_burn_and_lock_require_onchain_proof(self):
+        pool={"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
+        lock={"transaction":{"message":{"instructions":[
+          {"programId":"LOCK","parsed":{"type":"lock","info":{"lpMint":"LP","amount":"250","unlockTime":1000+90*86400}}}]}}}
+        def fake_rpc(url,method,params):
+            if method=="getTokenSupply":return {"value":{"amount":"500"}}
+            if method=="getTokenLargestAccounts":return {"value":[]}
+            if method=="getBlockTime":return 1000
+            raise AssertionError(method)
+        with patch.object(solana_ingest,"rpc",side_effect=fake_rpc):
+            burn,bv,locked,days,lv=solana_ingest.lp_proof("rpc",pool,"LP",{"LOCK"},5,lock)
+        self.assertEqual(burn,50)
+        self.assertTrue(bv)
+        self.assertEqual((locked,days,lv),(25,90,True))
+
     def test_slot_metrics_counts_net_buys_and_launch_funders(self):
         def make(payer,delta):
             return {"transaction":{"message":{"accountKeys":[{"pubkey":payer,"signer":True}]}},
