@@ -81,6 +81,30 @@ def account_keys(tx):
     return {x.get("pubkey") if isinstance(x, dict) else x for x in keys}
 
 
+def instruction_programs(tx):
+    """Return invoked program IDs and parsed instruction types, including inner ix."""
+    message = (tx or {}).get("transaction", {}).get("message", {})
+    keys = [x.get("pubkey") if isinstance(x, dict) else x
+            for x in message.get("accountKeys", [])]
+    groups = [message.get("instructions", [])]
+    groups.extend(x.get("instructions", [])
+                  for x in (tx or {}).get("meta", {}).get("innerInstructions", []))
+    programs, types = set(), set()
+    for group in groups:
+        for ix in group:
+            program = ix.get("programId")
+            if not program:
+                index = ix.get("programIdIndex")
+                if isinstance(index, int) and 0 <= index < len(keys):
+                    program = keys[index]
+            if isinstance(program, str):
+                programs.add(program)
+            parsed = ix.get("parsed")
+            if isinstance(parsed, dict) and isinstance(parsed.get("type"), str):
+                types.add(parsed["type"])
+    return programs, types
+
+
 def find_mint_init(url, mint, max_pages=20):
     before = None
     inspected = 0
@@ -116,6 +140,8 @@ def inspect_window(url, mint, launch_slot, dex_programs):
     if error or slots is None:
         return {"error": error or "getBlocks_empty", "produced_slots": []}
     summaries = []
+    observed_programs = defaultdict(int)
+    program_examples = []
     for slot in slots:
         block, block_error = rpc(url, "getBlock", [slot, {
             "encoding": "jsonParsed", "transactionDetails": "full",
@@ -128,8 +154,22 @@ def inspect_window(url, mint, launch_slot, dex_programs):
         pool_events = []
         for entry in block.get("transactions", []):
             tx = entry.get("transaction", {})
-            if mint in account_keys(tx) or any(x.get("mint") == mint for x in (entry.get("meta") or {}).get("postTokenBalances", [])):
+            related = (mint in account_keys(entry) or
+                       any(x.get("mint") == mint for x in (entry.get("meta") or {}).get("postTokenBalances", [])) or
+                       any(x.get("mint") == mint for x in (entry.get("meta") or {}).get("preTokenBalances", [])))
+            if related:
                 matching += 1
+                programs, types = instruction_programs(entry)
+                for program in programs:
+                    observed_programs[program] += 1
+                if len(program_examples) < 50:
+                    signatures = tx.get("signatures", [])
+                    program_examples.append({
+                        "slot": slot,
+                        "signature": signatures[0] if signatures else None,
+                        "program_ids": sorted(programs),
+                        "instruction_types": sorted(types)
+                    })
             pool = pool_info(entry, dex_programs)
             if pool and mint in pool.get("mints", set()):
                 pool_events.append({"lp_mint": pool.get("lp_mint"),
@@ -138,7 +178,9 @@ def inspect_window(url, mint, launch_slot, dex_programs):
             summaries.append({"slot": slot, "mint_related_transactions": matching,
                               "matching_pool_events": pool_events,
                               "transaction_count": len(block.get("transactions", []))})
-    return {"produced_slots": slots, "slot_summaries": summaries}
+    return {"produced_slots": slots, "slot_summaries": summaries,
+            "observed_program_ids": dict(sorted(observed_programs.items())),
+            "mint_related_transaction_examples": program_examples}
 
 
 def main():
