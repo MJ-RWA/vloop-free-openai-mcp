@@ -39,16 +39,28 @@ The q1 cohort therefore supports a **potential label join**, not a completed bac
 
 ## Historical transaction access: practical assessment
 
-### 1. Old Faithful is the strongest public reconstruction route
+### 1. Old Faithful is the strongest public reconstruction route, with an important access detail
 
-The Yellowstone Old Faithful project describes a full genesis-to-tip Solana block archive. Triton publishes the OF1 archive at https://files.old-faithful.net, and the project supports retrieving historical blocks through a standard RPC interface or processing CAR archives locally:
+The Yellowstone Old Faithful project describes a genesis-to-tip Solana block archive. Triton publishes the OF1 epoch files at https://files.old-faithful.net, and the project provides a standard JSON-RPC/gRPC server over archived blocks:
 
 - Overview: https://docs.old-faithful.net/
+- OF1 file layout: https://docs.old-faithful.net/references/of1-files
+- RPC server and HTTP-backed CAR configuration: https://docs.old-faithful.net/usage/rpc-server
 - Sourcing data: https://docs.old-faithful.net/running-old-faithful/sourcing-data
 - Triton archive: https://files.old-faithful.net
 - Example CAR extraction tooling: https://github.com/yuno-research/solana_car
 
-This is the most promising route for the 2022-09 through 2024-10 cohort because it is designed to preserve historical blocks rather than relying on a normal node's recent ledger. It is not a one-command free API: the archive is very large, and selective epoch downloads, CAR parsing, instruction decoding and local storage are required. A bounded pilot should first choose a small number of labeled mints, identify their launch dates/slots, fetch only the corresponding epoch archives, and verify that all launch+15 blocks and transaction metadata can be recovered. Do not download the full archive for this bounty.
+**Do not download an entire epoch CAR by default.** An Old Faithful epoch folder publishes a CAR plus several indexes, including slot-to-CID, CID-to-offset/size and transaction/signature indexes. Its RPC server accepts HTTP URLs for CAR and index files, provided the hosting endpoint supports HTTP Range requests. That creates a better pilot route: configure the RPC server against the remote epoch CAR and its matching indexes, then request only the target slots/transactions through RPC. This is still an integration task, not a guaranteed public hosted RPC endpoint; it depends on the remote files and range requests being reachable and the matching indexes being available.
+
+The archive is large enough that bulk processing is not a sensible first step: a third-party parser reports epoch CARs on the order of hundreds of gigabytes, while the official documentation recommends local high-speed index storage for large-scale deployments. The pilot should therefore:
+1. Resolve a handful of q1 token creation timestamps to candidate slots and epochs.
+2. Check that each epoch folder exposes the CAR and the exact matching indexes.
+3. Verify HTTP Range support for the CAR and index URLs.
+4. Configure/build `faithful-cli rpc` for only those epochs, with remote CAR/index URIs where supported.
+5. Fetch a few known slots and transactions, checking block slot, signatures, transaction metadata and completeness.
+6. Only then scale to a bounded sample of labeled mints.
+
+If remote range access or required indexes are unavailable, the fallback is a local epoch CAR download and index build, which may require substantial disk space. Do not download the full archive for this bounty.
 
 ### 2. Solarchive is useful, but its currently published transaction coverage is not enough for this cohort
 
