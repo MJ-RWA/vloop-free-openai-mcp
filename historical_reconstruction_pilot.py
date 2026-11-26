@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from collections import defaultdict
 
-from solana_ingest import launch_mints, pool_info, RAYDIUM_V4
+from solana_ingest import launch_mints, pool_info, RAYDIUM_V4, PUMP_AMM
 
 LABELS_URL = "https://raw.githubusercontent.com/Saba-Heydaridoost/rugpull_detector/main/dataset/rule_based_labels.csv"
 
@@ -205,7 +205,7 @@ def main():
         ap.error("HELIUS_RPC_URL must be configured as an environment secret")
     if not 1 <= args.per_class <= 10:
         ap.error("--per-class must be between 1 and 10")
-    dex_programs = set(args.dex_program or [RAYDIUM_V4])
+    dex_programs = set(args.dex_program or [RAYDIUM_V4, PUMP_AMM])
     cohort = load_cohort(args.per_class, 7)
     report = {
         "study": "bounded historical reconstruction feasibility pilot",
