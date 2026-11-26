@@ -219,10 +219,20 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None):
             if ix.get("programId") in lock_ids and "lock" in typ and info.get("mint",info.get("lpMint"))==lp_mint:
                 expiry=info.get("unlockTime",info.get("unlockTimestamp"))
                 amount=info.get("amount")
+                vault=next((info.get(k) for k in ("tokenAccount","lpTokenAccount","vault","escrow","destination") if isinstance(info.get(k),str)),None)
                 try:
-                    if int(expiry)>now and initial and amount:
-                        locked=max(locked,100*int(amount)/initial);days=max(days,int((int(expiry)-now)/86400));lock_ok=True
-                except (ValueError,TypeError):pass
+                    amount=int(amount)
+                    # A parsed instruction alone is not enough: verify its LP
+                    # destination is a live token account holding at least the
+                    # amount claimed by the locker instruction.
+                    va=account_info(url,vault) if vault else None
+                    vi=va["data"]["parsed"]["info"] if va else {}
+                    balance=int(vi.get("tokenAmount",{}).get("amount",0))
+                    if (int(expiry)>now and initial and 0<amount<=initial
+                            and vi.get("mint")==lp_mint and balance>=amount):
+                        locked=max(locked,100*amount/initial)
+                        days=max(days,int((int(expiry)-now)/86400));lock_ok=True
+                except (ValueError,TypeError,KeyError):pass
     return min(100,pct),burn_ok,min(100,locked),days,lock_ok
 
 
