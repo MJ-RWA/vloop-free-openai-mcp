@@ -101,19 +101,12 @@ def main():
         if not ok or not block:
             print(f"history_{days}d: INCONCLUSIVE getBlock slot={slot} failed: {str(block)[:300]}")
             continue
-        txs = block.get("transactions", [])
-        signature = None
-        if txs:
-            first_tx = txs[0]
-            # With transactionDetails="signatures", RPC returns signature strings.
-            if isinstance(first_tx, str):
-                signature = first_tx
-            elif isinstance(first_tx, dict):
-                signatures = first_tx.get("signatures", [])
-                if signatures:
-                    signature = signatures[0]
+        # transactionDetails="signatures" returns a top-level signatures array;
+        # it does not return a transactions array.
+        signatures = block.get("signatures", [])
+        signature = signatures[0] if signatures else None
         if not signature:
-            print(f"history_{days}d: BLOCK_OK slot={slot} tx_count={len(txs)} but no sample signature")
+            print(f"history_{days}d: BLOCK_OK slot={slot} tx_count=0 but no sample signature")
             continue
         tx_ok, tx_result, tx_ms = call(args.rpc, "getTransaction", [signature, {
             "encoding": "json", "commitment": "finalized", "maxSupportedTransactionVersion": 1
@@ -122,7 +115,7 @@ def main():
         actual_age = ((anchor_time - block_time) / 86400) if block_time is not None else None
         age_text = f" actual_age_days={actual_age:.2f}" if actual_age is not None else " actual_age_days=unknown"
         print(f"history_{days}d: BLOCK_OK slot={slot} blockTime={block_time}{age_text} "
-              f"tx_count={len(txs)} getBlocks={ms}ms getBlock={block_ms}ms "
+              f"tx_count={len(signatures)} getBlocks={ms}ms getBlock={block_ms}ms "
               f"getTransaction={'OK' if tx_ok else 'FAIL'} ({tx_ms}ms)")
 
     if "first_slot" in locals():
