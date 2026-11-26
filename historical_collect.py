@@ -78,7 +78,23 @@ def find_slot_at_time(url, target_time, high):
     return best[1], best[2]
 
 
+def sampled_slot_numbers(start, end, count, seed):
+    """Choose bounded candidate slots without first indexing the whole range.
+
+    Some sampled slots may be skipped slots; getBlock(None) handles those.
+    The number returned never exceeds count.
+    """
+    if end < start or count < 1:
+        return []
+    population = end - start + 1
+    rng = random.Random(seed)
+    if count >= population:
+        return list(range(start, end + 1))
+    return sorted(rng.sample(range(start, end + 1), count))
+
+
 def produced_slots(url, start, end, chunk_slots):
+    """Enumerate every produced slot; intended only for explicit exhaustive mode."""
     slots = []
     for left in range(start, end + 1, chunk_slots):
         right = min(end, left + chunk_slots - 1)
@@ -124,11 +140,21 @@ def main():
     print(f"window: requested_days={args.days:g} start_slot={start} end_slot={end} "
           f"actual_days={(anchor_time-target_time)/86400:.3f}", flush=True)
 
-    slots = produced_slots(args.rpc, start, end, args.chunk_slots)
-    if args.max_blocks and len(slots) > args.max_blocks:
-        rng = random.Random(args.seed)
-        slots = sorted(rng.sample(slots, args.max_blocks))
-        print(f"sampling {len(slots)} of the produced blocks (seed={args.seed}); not exhaustive", flush=True)
+    if args.max_blocks:
+        slots = sampled_slot_numbers(start, end, args.max_blocks, args.seed)
+        print(
+            f"sampling at most {len(slots)} candidate slot numbers from the window "
+            f"(seed={args.seed}); skipped slots may reduce fetched block count; "
+            "not exhaustive",
+            flush=True,
+        )
+    else:
+        slots = produced_slots(args.rpc, start, end, args.chunk_slots)
+        print(
+            f"exhaustive mode: indexed {len(slots)} produced slots; "
+            "this may require many RPC requests",
+            flush=True,
+        )
     completed = read_checkpoint(args.checkpoint)
     todo = [slot for slot in slots if slot not in completed]
     known = set()
