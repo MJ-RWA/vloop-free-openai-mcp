@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 import backtest, solana_ingest
 
@@ -98,6 +100,32 @@ class IngestTests(unittest.TestCase):
         self.assertTrue(bv)
         self.assertEqual((locked,days,lv),(0.0,0,False))
 
+    def test_lp_burn_journal_survives_restart_and_deduplicates(self):
+        tx={"meta":{"err":None},"transaction":{"signatures":["burn-sig"],"message":{"instructions":[
+          {"parsed":{"type":"burnChecked","info":{"mint":"LP","amount":"25"}}}]}}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"burns.sqlite3"
+            db=solana_ingest.open_burn_journal(path)
+            self.assertTrue(solana_ingest.record_lp_burn(db,"LP",101,tx))
+            self.assertTrue(solana_ingest.record_lp_burn(db,"LP",101,tx))
+            db.close()
+            db=solana_ingest.open_burn_journal(path)
+            rows=solana_ingest.load_lp_burns(db,"LP",100,115)
+            self.assertEqual(len(rows),1)
+            self.assertEqual(solana_ingest.lp_burn_mints(rows[0]),{"LP"})
+            db.close()
+
+    def test_lp_burn_journal_rejects_failed_or_unrelated_transactions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db=solana_ingest.open_burn_journal(Path(tmp)/"burns.sqlite3")
+            failed={"meta":{"err":{"InstructionError":[0,"Custom"]}},"transaction":{"signatures":["bad"],"message":{"instructions":[
+              {"parsed":{"type":"burn","info":{"mint":"LP","amount":"10"}}}]}}}
+            other={"meta":{"err":None},"transaction":{"signatures":["other"],"message":{"instructions":[
+              {"parsed":{"type":"burn","info":{"mint":"OTHER","amount":"10"}}}]}}}
+            self.assertFalse(solana_ingest.record_lp_burn(db,"LP",101,failed))
+            self.assertFalse(solana_ingest.record_lp_burn(db,"LP",101,other))
+            self.assertEqual(solana_ingest.load_lp_burns(db,"LP",0,200),[])
+            db.close()
     def test_multiple_lp_burn_transactions_are_aggregated(self):
         pool={"meta":{"err":None},"transaction":{"message":{"instructions":[
           {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
