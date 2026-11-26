@@ -53,6 +53,11 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             score_launch(self.safe(fdv_sol=float("nan")))
 
+    def test_missing_liquidity_is_not_mislabeled_thin(self):
+        r=score_launch(self.safe(initial_liq_sol=0,fdv_sol=0))
+        self.assertIn("LIQUIDITY_DEPTH_UNAVAILABLE",r["flags"])
+        self.assertNotIn("THIN_LIQUIDITY",r["flags"])
+
     def test_output_probabilities_bounded_and_labeled(self):
         r = score_launch(self.safe())
         self.assertTrue(0 <= r["rug_probability"] <= 1)
