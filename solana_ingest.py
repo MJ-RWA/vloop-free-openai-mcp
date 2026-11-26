@@ -182,6 +182,7 @@ def slot_metrics(url,mint,start,end):
             tx=entry.get("transaction",{}); meta=entry.get("meta") or {}
             keys=tx.get("message",{}).get("accountKeys",[])
             payer=(keys[0].get("pubkey") if keys and isinstance(keys[0],dict) else keys[0] if keys else None)
+            signers={x.get("pubkey") for x in keys if isinstance(x,dict) and x.get("signer")}
             pre={}; post={}
             for x in meta.get("preTokenBalances",[]):
                 if x.get("mint")==mint:pre[x.get("accountIndex")]=(int(x.get("uiTokenAmount",{}).get("amount",0)),x.get("owner"))
@@ -191,10 +192,9 @@ def slot_metrics(url,mint,start,end):
             for i in set(pre)|set(post):
                 before,bo=pre.get(i,(0,None)); after,ao=post.get(i,(0,None))
                 d=after-before; owner=ao or bo
-                if d>0:
-                    delta+=d
-                    if owner:buyers.add(owner)
-                elif d<0 and owner:sellers.add(owner)
+                if d>0 and owner in signers:
+                    delta+=d;buyers.add(owner)
+                elif d<0 and owner in signers:sellers.add(owner)
             if delta>0:
                 buys.append(float(delta));same_slot[slot]=same_slot.get(slot,0)+1
                 if slot==start:funders0.add(funding.get(payer,payer))
