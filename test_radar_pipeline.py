@@ -42,12 +42,12 @@ class IngestTests(unittest.TestCase):
           {"programId":"OTHER","parsed":{"type":"initializePool","info":{"tokenMint":"Mint111111111111111111111111111111111"}}}]}}}
         self.assertIsNone(solana_ingest.pool_info(tx,{"DEX"}))
     def test_lp_burn_and_lock_require_onchain_proof(self):
-        pool={"transaction":{"message":{"instructions":[
-          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
+        pool={"meta":{"err":None},"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}},
+          {"parsed":{"type":"burnChecked","info":{"mint":"LP","amount":"500"}}}]}}}
         lock={"transaction":{"message":{"instructions":[
           {"programId":"LOCK","parsed":{"type":"lock","info":{"lpMint":"LP","amount":"250","tokenAccount":"LOCKVAULT","unlockTime":1000+90*86400}}}]}}}
         def fake_rpc(url,method,params):
-            if method=="getTokenSupply":return {"value":{"amount":"500"}}
             if method=="getBlockTime":return 1000
             if method=="getAccountInfo":return {"value":{"data":{"parsed":{"info":{"mint":"LP","tokenAmount":{"amount":"250"}}}}}}
             raise AssertionError(method)
