@@ -401,8 +401,8 @@ def main():
     args = ap.parse_args()
     if not args.rpc:
         ap.error("HELIUS_RPC_URL must be configured as an environment secret")
-    if not 1 <= args.per_class <= 10:
-        ap.error("--per-class must be between 1 and 10")
+    if not 1 <= args.per_class <= 25:
+        ap.error("--per-class must be between 1 and 25")
     dex_programs = set(args.dex_program or [RAYDIUM_V4, PUMP_AMM])
     cohort = load_cohort(args.per_class, 7)
     report = {
