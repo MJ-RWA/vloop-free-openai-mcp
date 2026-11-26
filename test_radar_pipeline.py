@@ -138,6 +138,15 @@ class IngestTests(unittest.TestCase):
         self.assertTrue(bv)
         self.assertEqual((locked,days,lv),(25,90,True))
 
+    def test_unlock_instruction_cannot_prove_lp_lock(self):
+        pool={"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
+        unlock={"transaction":{"message":{"instructions":[
+          {"programId":"LOCK","parsed":{"type":"unlock","info":{"lpMint":"LP","amount":"250","tokenAccount":"VAULT","unlockTime":1000+90*86400}}}]}}}
+        with patch.object(solana_ingest,"rpc",return_value=1000):
+            _,_,locked,days,verified=solana_ingest.lp_proof("rpc",pool,"LP",{"LOCK"},5,unlock)
+        self.assertEqual((locked,days,verified),(0.0,0,False))
+
     def test_lp_lock_requires_matching_vault_balance(self):
         pool={"transaction":{"message":{"instructions":[
           {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
