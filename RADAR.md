@@ -133,3 +133,19 @@ The repository includes a manual workflow, `.github/workflows/historical-rpc-pro
 5. Download the `historical-rpc-probe` artifact and inspect per-slot block retrieval, encoding, transaction metadata coverage, and token-balance rows.
 
 The runner intentionally omits the endpoint URL, credentials, and provider response bodies from its report and logs. This is still a capability probe, not a dataset collector or a backtest. A successful run is only a gate to the next controlled reconstruction pilot; it does not establish exhaustive historical coverage or predictive performance.
+
+
+### Automated Helius capability probe (2026-11-26)
+
+The credential-safe GitHub Actions probe completed successfully on run [45799157819](https://github.com/MJ-RWA/vloop-free-openai-mcp/actions/runs/45799157819), using the four historical slots above. The report showed:
+
+| Sample slot | Transactions | Transactions with metadata | Token balance rows | Encoding | getBlock latency |
+|---:|---:|---:|---:|---|---:|
+| 382,619,204 | 1,128 | 1,128 (100%) | 1,946 | jsonParsed | 157 ms |
+| 303,713,493 | 2,051 | 2,051 (100%) | 3,293 | jsonParsed | 256 ms |
+| 232,538,996 | 3,704 | 3,704 (100%) | 2,328 | jsonParsed | 378 ms |
+| 163,465,783 | 208 | 208 (100%) | 172 | jsonParsed | 72 ms |
+
+All four requested slots were returned by `getBlocks`; all four `getBlock` calls succeeded using `jsonParsed`, with metadata present for every transaction in each sampled block. This is a stronger capability result than the earlier single-transaction test and supports proceeding to a bounded reconstruction pilot.
+
+It remains a four-block sample, not continuous historical coverage. It does not validate address-signature pagination, missing/skipped slots across a date range, full cohort coverage, throughput under sustained collection, or correctly labeled outcomes. No scorer performance metric can be inferred from this probe. The artifact is retained by GitHub Actions for 14 days.
