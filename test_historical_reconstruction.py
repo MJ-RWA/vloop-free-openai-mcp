@@ -39,9 +39,9 @@ class HistoricalProgramDiscoveryTests(unittest.TestCase):
     def test_mint_init_search_checks_oldest_transactions_first(self, mocked_rpc):
         mint = "MINT_ADDRESS"
         newest_page = [
-            {"signature": "newest", "slot": 30, "blockTime": 300},
-            {"signature": "middle", "slot": 20, "blockTime": 200},
-        ]
+            {"signature": f"newer-{i}", "slot": 3000 - i, "blockTime": 3000 - i}
+            for i in range(999)
+        ] + [{"signature": "before-cursor", "slot": 2000, "blockTime": 2000}]
         oldest_page = [
             {"signature": "oldest", "slot": 10, "blockTime": 100},
         ]
