@@ -12,6 +12,22 @@ class BacktestTests(unittest.TestCase):
     def test_apply_steps(self):
         self.assertEqual(backtest.apply(.15,[[.2,.3],[1,.8]]),.3)
         self.assertEqual(backtest.apply(.9,[[.2,.3],[1,.8]]),.8)
+    def test_ranking_metrics_perfect_order_and_ties(self):
+        m=backtest.ranking_metrics([(0.1,0),(0.2,0),(0.8,1),(0.9,1)])
+        self.assertEqual(m,{"roc_auc":1.0,"average_precision":1.0})
+        tied=backtest.ranking_metrics([(0.5,0),(0.5,1)])
+        self.assertEqual(tied,{"roc_auc":0.5,"average_precision":0.5})
+
+    def test_ranking_metrics_returns_none_for_single_class(self):
+        self.assertEqual(backtest.ranking_metrics([(0.1,0),(0.8,0)]),
+          {"roc_auc":None,"average_precision":None})
+
+    def test_chronological_split_keeps_same_slot_together(self):
+        rows=[(10,.1,0),(10,.2,1),(11,.3,0),(12,.8,1),(12,.9,0)]
+        train,test=backtest.chronological_split(rows,.6)
+        self.assertTrue(max(x[0] for x in train)<min(x[0] for x in test))
+        self.assertEqual(len(train)+len(test),len(rows))
+
     def test_metrics_counts_and_bounds(self):
         m=backtest.metrics([(.9,1),(.8,0),(.1,0),(.2,1)])
         self.assertEqual((m["tp"],m["fp"],m["tn"],m["fn"]),(1,1,1,1))
