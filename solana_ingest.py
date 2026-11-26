@@ -111,6 +111,7 @@ def open_burn_journal(path):
     db.execute("PRAGMA synchronous=FULL")
     db.execute("CREATE TABLE IF NOT EXISTS lp_burns (lp_mint TEXT NOT NULL, signature TEXT NOT NULL, slot INTEGER NOT NULL, transaction_json TEXT NOT NULL, PRIMARY KEY(lp_mint,signature))")
     db.execute("CREATE INDEX IF NOT EXISTS lp_burns_slot ON lp_burns(lp_mint,slot)")
+    db.execute("CREATE TABLE IF NOT EXISTS launch_pools (lp_mint TEXT PRIMARY KEY, mint TEXT NOT NULL, launch_json TEXT NOT NULL, pool_json TEXT NOT NULL, pool_tx_json TEXT NOT NULL)")
     db.commit()
     return db
 
@@ -125,6 +126,21 @@ def record_lp_burn(db,lp_mint,slot,tx):
     db.commit()
     return True
 
+def save_pool_association(db,lp_mint,mint,launch,pool,pool_tx):
+    stored_pool=dict(pool)
+    stored_pool["mints"]=sorted(pool.get("mints",()))
+    db.execute("INSERT OR REPLACE INTO launch_pools VALUES (?,?,?,?,?)",
+        (lp_mint,mint,json.dumps(launch,separators=(",",":")),json.dumps(stored_pool,separators=(",",":")),json.dumps(pool_tx,separators=(",",":"))))
+    db.commit()
+
+def load_pool_associations(db):
+    rows=db.execute("SELECT lp_mint,mint,launch_json,pool_json,pool_tx_json FROM launch_pools ORDER BY rowid DESC LIMIT 10000").fetchall()
+    result={}
+    for lp_mint,mint,launch_json,pool_json,pool_tx_json in rows:
+        pool=json.loads(pool_json)
+        pool["mints"]=set(pool.get("mints",()))
+        result[lp_mint]=(mint,json.loads(launch_json),pool,json.loads(pool_tx_json))
+    return result
 def load_lp_burns(db,lp_mint,start_slot,end_slot):
     rows=db.execute("SELECT transaction_json FROM lp_burns WHERE lp_mint=? AND slot BETWEEN ? AND ? ORDER BY slot,signature", (lp_mint,int(start_slot),int(end_slot))).fetchall()
     return [json.loads(row[0]) for row in rows]
@@ -331,7 +347,7 @@ def main():
     programs=[TOKEN,TOKEN22]+args.dex_program+args.lock_program
     correlator=LaunchCorrelator()
     burn_db=open_burn_journal(args.burn_journal)
-    sub_program={}; seen={}; pool_by_lp={}
+    sub_program={}; seen={}; pool_by_lp=load_pool_associations(burn_db)
     while True:
         s=None
         def emit(mint,launch,pool,pool_tx,event_tx,slot):
@@ -387,6 +403,7 @@ def main():
                             launch,pool,pool_tx,pool_slot=match
                             if pool["lp_mint"]:
                                 pool_by_lp[pool["lp_mint"]]=(mint,launch,pool,pool_tx)
+                                save_pool_association(burn_db,pool["lp_mint"],mint,launch,pool,pool_tx)
                                 if len(pool_by_lp)>10000:pool_by_lp.pop(next(iter(pool_by_lp)))
                             emit(mint,launch,pool,pool_tx,pool_tx,pool_slot)
                     # LP tokens may be burned in a later transaction. Join the
@@ -407,6 +424,7 @@ def main():
                         launch,matched_pool,pool_tx,pool_slot=match
                         if matched_pool["lp_mint"]:
                             pool_by_lp[matched_pool["lp_mint"]]=(mint,launch,matched_pool,pool_tx)
+                            save_pool_association(burn_db,matched_pool["lp_mint"],mint,launch,matched_pool,pool_tx)
                             if len(pool_by_lp)>10000:pool_by_lp.pop(next(iter(pool_by_lp)))
                         emit(mint,launch,matched_pool,pool_tx,pool_tx,pool_slot)
                     continue
