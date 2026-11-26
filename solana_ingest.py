@@ -221,6 +221,17 @@ def account_info(url,key):
     r=rpc(url,"getAccountInfo",[key,{"encoding":"jsonParsed","commitment":"confirmed"}])
     return (r or {}).get("value")
 
+def explicit_bool(value,default=False):
+    """Parse provider boolean representations without treating 'false' as true."""
+    if isinstance(value,bool):return value
+    if isinstance(value,(int,float)) and value in (0,1):return bool(value)
+    if isinstance(value,str):
+        v=value.strip().lower()
+        if v in ("true","1","yes"):return True
+        if v in ("false","0","no",""):return False
+    return default
+
+
 def mint_risk_features(info):
     """Extract only explicit mint/account metadata; unknown extensions stay unknown.
 
@@ -254,8 +265,8 @@ def mint_risk_features(info):
         if isinstance(fee,dict):
             try:fees.append(int(fee.get("transferFeeBasisPoints",0)))
             except (TypeError,ValueError):pass
-    return {"metadata_mutable":bool(mutable),
-            "transfer_fee_bps":max([0]+fees)}
+    return {"metadata_mutable":explicit_bool(mutable),
+            "transfer_fee_bps":max([0]+[v for v in fees if 0<=v<=10000])}
 
 
 def holders(url,mint,vaults):
@@ -406,7 +417,7 @@ def main():
             burn,bv,lock,days,lv=lp_proof(args.rpc,pool_tx,pool["lp_mint"],set(args.lock_program),slot,event_tx,burn_txs)
             activity=slot_metrics(args.rpc,mint,launch["slot"],slot)
             event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
-              "mint_authority_active":bool(mi.get("mintAuthority")),"freeze_authority_active":bool(mi.get("freezeAuthority")),
+              "mint_authority_active":mi.get("mintAuthority") is not None,"freeze_authority_active":mi.get("freezeAuthority") is not None,
               **mint_risk_features(mi),"holders":hs,"lp_vaults":pool["vaults"],"lp_burn_pct":burn,"lp_burn_verified":bv,
               "lp_lock_pct":lock,"lp_lock_days":days,"lp_lock_verified":lv,**activity}
             result=score_launch(event)
