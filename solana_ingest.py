@@ -35,10 +35,13 @@ def ws_connect(url):
     if u.query:path+="?"+u.query
     s.sendall((f"GET {path} HTTP/1.1\r\nHost: {u.netloc}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
     head=b""
-    while b"\r\n\r\n" not in head: head+=s.recv(1)
+    while b"\r\n\r\n" not in head:
+        part=s.recv(1)
+        if not part: raise ConnectionError("WebSocket closed during handshake")
+        head+=part
     if b" 101 " not in head: raise ConnectionError("WebSocket upgrade rejected: "+head.decode(errors="replace"))
     accept=base64.b64encode(hashlib.sha1((key+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest())
-    headers={line.split(b":",1)[0].strip().lower():line.split(b":",1)[1].strip() for line in head.split(b"\\r\\n")[1:] if b":" in line}
+    headers={line.split(b":",1)[0].strip().lower():line.split(b":",1)[1].strip() for line in head.split(b"\r\n")[1:] if b":" in line}
     if headers.get(b"sec-websocket-accept")!=accept: raise ConnectionError("bad WebSocket accept")
     return s
 
@@ -169,7 +172,9 @@ def slot_metrics(url,mint,start,end):
                 if x.get("mint")==mint:post[x.get("accountIndex")]=int(x.get("uiTokenAmount",{}).get("amount",0))
             delta=sum(post.get(i,0)-pre.get(i,0) for i in set(pre)|set(post))
             if delta>0:
-                buys.append(float(delta));payers.add(payer)\n                if slot==start:payers0.add(payer)\n                same_slot[slot]=same_slot.get(slot,0)+1
+                buys.append(float(delta));payers.add(payer)
+                if slot==start:payers0.add(payer)
+                same_slot[slot]=same_slot.get(slot,0)+1
     n=len(buys);mean=sum(buys)/n if n else 0
     cv=(sum((x-mean)**2 for x in buys)/n)**.5/mean if mean else 1.0
     return {"slot0_buys":same_slot.get(start,0),"total_early_buys":n,
