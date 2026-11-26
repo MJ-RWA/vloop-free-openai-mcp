@@ -149,3 +149,21 @@ The credential-safe GitHub Actions probe completed successfully on run [45799157
 All four requested slots were returned by `getBlocks`; all four `getBlock` calls succeeded using `jsonParsed`, with metadata present for every transaction in each sampled block. This is a stronger capability result than the earlier single-transaction test and supports proceeding to a bounded reconstruction pilot.
 
 It remains a four-block sample, not continuous historical coverage. It does not validate address-signature pagination, missing/skipped slots across a date range, full cohort coverage, throughput under sustained collection, or correctly labeled outcomes. No scorer performance metric can be inferred from this probe. The artifact is retained by GitHub Actions for 14 days.
+
+
+## Bounded labeled historical reconstruction pilot
+
+`historical_reconstruction_pilot.py` provides a small feasibility audit using the public q1 rule-based labels from the Early Rug Pull Detection on Solana research repository. It selects a deterministic chronological spread of q1 `VALID` positive and negative mints, recovers each mint-initialization transaction with `getSignaturesForAddress` and `getTransaction`, then inspects the following 15 produced slots for mint-related transactions and configured pool initializations.
+
+Run locally with `HELIUS_RPC_URL` set in the environment:
+
+```powershell
+$env:HELIUS_RPC_URL = "https://your-private-rpc-endpoint"
+py -3.12 historical_reconstruction_pilot.py --per-class 4
+```
+
+Or run **Actions → Historical reconstruction pilot** after configuring the `HELIUS_RPC_URL` repository secret. The report is uploaded as the `historical-reconstruction-pilot` artifact.
+
+Dataset source: [Saba-Heydaridoost/rugpull_detector](https://github.com/Saba-Heydaridoost/rugpull_detector), `dataset/rule_based_labels.csv`. The pilot uses only q1 `VALID` labels; it does not use the released q1 feature columns as first-15-slot predictors. The q1 outcome label is determined after its 750-second observation cutoff and up to the 24-hour outcome horizon. A market-outcome label is not proof of criminal intent.
+
+This is a bounded feasibility pilot, not an exhaustive dataset build and not a model evaluation. It reports mint-init recovery and first-15-slot pool-event observations only. It does not yet construct complete scorer feature vectors, verify all DEX venues, or calculate precision, recall, ROC AUC, Brier score, or calibration. Do not describe its results as backtest performance. The research repository's dataset licensing and attribution terms must be checked before redistributing any source data; do not commit the downloaded CSV or copy its rows into this repository.
