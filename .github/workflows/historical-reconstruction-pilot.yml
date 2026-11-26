@@ -1,0 +1,47 @@
+name: Historical reconstruction pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      per_class:
+        description: "Number of q1 VALID examples per class (1-10)"
+        required: true
+        default: "4"
+        type: string
+  push:
+    branches:
+      - feat/issue-1-rug-radar-verified-risk
+    paths:
+      - ".github/workflows/historical-reconstruction-pilot.yml"
+      - "historical_reconstruction_pilot.py"
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run bounded reconstruction pilot
+        env:
+          HELIUS_RPC_URL: ${{ secrets.HELIUS_RPC_URL }}
+          PER_CLASS: ${{ inputs.per_class || '4' }}
+        run: |
+          if [ -z "$HELIUS_RPC_URL" ]; then
+            echo "::error::Configure the HELIUS_RPC_URL Actions secret."
+            exit 1
+          fi
+          python historical_reconstruction_pilot.py --per-class "$PER_CLASS"
+      - name: Upload reconstruction report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-reconstruction-pilot
+          path: historical_reconstruction_pilot.json
+          if-no-files-found: ignore
+          retention-days: 14
