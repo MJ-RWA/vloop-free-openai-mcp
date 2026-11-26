@@ -67,9 +67,9 @@ def ws_recv(s):
         if op not in (0,):continue
 
 def instructions(tx):
-    msg=(tx or {}).get("transaction",{}).get("message",{})
+    tx=tx or {}; msg=tx.get("transaction",{}).get("message") or tx.get("message",{})
     out=list(msg.get("instructions",[]))
-    for group in (tx or {}).get("meta",{}).get("innerInstructions",[]):out.extend(group.get("instructions",[]))
+    for group in tx.get("meta",{}).get("innerInstructions",[]):out.extend(group.get("instructions",[]))
     return out
 
 def parsed_info(ix):
