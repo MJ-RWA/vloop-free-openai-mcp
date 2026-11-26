@@ -47,7 +47,7 @@ jobs:
           report = json.loads(Path("historical_reconstruction_pilot.json").read_text())
           rows = report.get("feature_rows", [])
           Path("historical_features.jsonl").write_text(
-              "".join(json.dumps(row, separators=(",", ":")) + "\\n" for row in rows)
+              "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows)
           )
           print(f"exported {len(rows)} reconstructed feature rows")
           PY
