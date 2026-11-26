@@ -38,6 +38,16 @@ def call(url, method, params, timeout=30, retries=5):
     return False, last, 0
 
 
+def find_block_time(url, slot):
+    """Find a nearby produced block and its timestamp, handling skipped slots."""
+    for offset in range(0, 10001, 1000):
+        candidate = max(0, slot - offset)
+        ok, value, _ = call(url, "getBlockTime", [candidate], retries=2)
+        if ok and value is not None:
+            return candidate, value
+    raise RuntimeError(f"could not obtain block time near slot {slot}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rpc", default="https://api.mainnet-beta.solana.com")
@@ -60,9 +70,21 @@ def main():
     if "current_slot" not in locals():
         raise SystemExit("Could not obtain finalized slot; verify the endpoint and network.")
 
+    try:
+        anchor_slot, anchor_time = find_block_time(args.rpc, current_slot)
+        older_slot, older_time = find_block_time(args.rpc, max(0, anchor_slot - 100000))
+        elapsed = anchor_time - older_time
+        if elapsed <= 0:
+            raise RuntimeError("non-positive elapsed time between block-time anchors")
+        slots_per_second = (anchor_slot - older_slot) / elapsed
+        print(f"slot_rate: {slots_per_second:.4f} slots/second "
+              f"(anchors {older_slot}->{anchor_slot}; {older_time}->{anchor_time})")
+    except RuntimeError as exc:
+        raise SystemExit(f"Cannot time-align historical samples: {exc}")
+
     for days in args.days:
-        # Solana averages about 2.5 slots/second; the range lookup handles skipped slots.
-        target = max(0, current_slot - int(days * 86400 / 0.4))
+        # Estimate target slot from observed chain timestamps, not a fixed slot duration.
+        target = max(0, anchor_slot - int(days * 86400 * slots_per_second))
         lo, hi = max(0, target - args.window), target + args.window
         ok, slots, ms = call(args.rpc, "getBlocks", [lo, hi])
         if not ok:
@@ -91,7 +113,10 @@ def main():
         tx_ok, tx_result, tx_ms = call(args.rpc, "getTransaction", [signature, {
             "encoding": "json", "commitment": "finalized", "maxSupportedTransactionVersion": 1
         }])
-        print(f"history_{days}d: BLOCK_OK slot={slot} blockTime={block.get('blockTime')} "
+        block_time = block.get("blockTime")
+        actual_age = ((anchor_time - block_time) / 86400) if block_time is not None else None
+        age_text = f" actual_age_days={actual_age:.2f}" if actual_age is not None else " actual_age_days=unknown"
+        print(f"history_{days}d: BLOCK_OK slot={slot} blockTime={block_time}{age_text} "
               f"tx_count={len(txs)} getBlocks={ms}ms getBlock={block_ms}ms "
               f"getTransaction={'OK' if tx_ok else 'FAIL'} ({tx_ms}ms)")
 
