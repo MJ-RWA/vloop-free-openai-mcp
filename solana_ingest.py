@@ -2,7 +2,7 @@
 """Read-only Solana RPC/WebSocket launch ingester; emits scorer JSON for mint+pool events.
 Uses only Python 3.12 stdlib. Configure venue program IDs with --dex-program.
 """
-import argparse,base64,hashlib,json,os,random,socket,ssl,struct,sys,time
+import argparse,base64,hashlib,json,os,random,socket,sqlite3,ssl,struct,sys,time
 from urllib.parse import urlparse
 from urllib.request import Request,urlopen
 from spl_rug_radar import score_launch
@@ -103,6 +103,31 @@ def lp_burn_mints(tx):
     return {info["mint"] for ix in instructions(tx)
             for typ,info in [parsed_info(ix)]
             if typ in ("burn","burnchecked") and info.get("mint")}
+
+def open_burn_journal(path):
+    """Open a durable, deduplicated journal of observed LP burn transactions."""
+    db=sqlite3.connect(path)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=FULL")
+    db.execute("CREATE TABLE IF NOT EXISTS lp_burns (lp_mint TEXT NOT NULL, signature TEXT NOT NULL, slot INTEGER NOT NULL, transaction_json TEXT NOT NULL, PRIMARY KEY(lp_mint,signature))")
+    db.execute("CREATE INDEX IF NOT EXISTS lp_burns_slot ON lp_burns(lp_mint,slot)")
+    db.commit()
+    return db
+
+def record_lp_burn(db,lp_mint,slot,tx):
+    """Persist only successful transactions with an explicit matching burn."""
+    meta=(tx or {}).get("meta") or {}
+    signature=(tx or {}).get("transaction",{}).get("signatures",[""])[0]
+    if meta.get("err") is not None or not signature or lp_mint not in lp_burn_mints(tx):
+        return False
+    db.execute("INSERT OR IGNORE INTO lp_burns VALUES (?,?,?,?)", (lp_mint,signature,int(slot),json.dumps(tx,separators=(",",":"))))
+    db.execute("DELETE FROM lp_burns WHERE lp_mint=? AND signature NOT IN (SELECT signature FROM lp_burns WHERE lp_mint=? ORDER BY slot DESC,signature DESC LIMIT 64)", (lp_mint,lp_mint))
+    db.commit()
+    return True
+
+def load_lp_burns(db,lp_mint,start_slot,end_slot):
+    rows=db.execute("SELECT transaction_json FROM lp_burns WHERE lp_mint=? AND slot BETWEEN ? AND ? ORDER BY slot,signature", (lp_mint,int(start_slot),int(end_slot))).fetchall()
+    return [json.loads(row[0]) for row in rows]
 
 def tx_mints(tx):
     meta=(tx or {}).get("meta",{})
@@ -210,8 +235,11 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None,burn_txs=None):
     candidates=[tx,lock_tx]
     candidates.extend(burn_txs or ())
     for candidate in candidates:
-        if candidate is None or id(candidate) in seen:continue
-        seen.add(id(candidate))
+        if candidate is None:continue
+        signatures=(candidate or {}).get("transaction",{}).get("signatures",[])
+        identity=signatures[0] if signatures else id(candidate)
+        if identity in seen:continue
+        seen.add(identity)
         meta=(candidate or {}).get("meta") or {}
         if meta.get("err") is not None:continue
         observed.append(candidate)
@@ -296,12 +324,14 @@ def main():
     ap.add_argument("--dex-program",action="append",default=[])
     ap.add_argument("--lock-program",action="append",default=[])
     ap.add_argument("--calibration",help="optional isotonic calibration.json from backtest.py")
+    ap.add_argument("--burn-journal",default="lp_burn_journal.sqlite3",help="SQLite journal for observed LP burns")
     args=ap.parse_args()
     calibration=json.load(open(args.calibration)) if args.calibration else None
     if not args.dex_program:ap.error("at least one --dex-program is required; use exact pool program IDs")
     programs=[TOKEN,TOKEN22]+args.dex_program+args.lock_program
     correlator=LaunchCorrelator()
-    sub_program={}; seen={}; pool_by_lp={}; burn_txs_by_lp={}
+    burn_db=open_burn_journal(args.burn_journal)
+    sub_program={}; seen={}; pool_by_lp={}
     while True:
         s=None
         def emit(mint,launch,pool,pool_tx,event_tx,slot):
@@ -311,7 +341,7 @@ def main():
             try:mi=ai["data"]["parsed"]["info"]
             except (TypeError,KeyError):return
             hs=holders(args.rpc,mint,set(pool["vaults"]))
-            burn_txs=burn_txs_by_lp.get(pool["lp_mint"],())
+            burn_txs=load_lp_burns(burn_db,pool["lp_mint"],launch["slot"],launch["slot"]+15)
             burn,bv,lock,days,lv=lp_proof(args.rpc,pool_tx,pool["lp_mint"],set(args.lock_program),slot,event_tx,burn_txs)
             activity=slot_metrics(args.rpc,mint,launch["slot"],slot)
             event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
@@ -366,11 +396,7 @@ def main():
                         saved=pool_by_lp.get(lp)
                         if saved:
                             mint,launch,pool,pool_tx=saved
-                            history=burn_txs_by_lp.setdefault(lp,[])
-                            signature=tx.get("transaction",{}).get("signatures",[""])[0]
-                            if signature and all(x.get("transaction",{}).get("signatures",[""])[0]!=signature for x in history):
-                                history.append(tx)
-                                if len(history)>64:history.pop(0)
+                            record_lp_burn(burn_db,lp,slot,tx)
                             emit(mint,launch,pool,pool_tx,tx,slot)
                     continue
                 pool=pool_info(tx,set(args.dex_program)) if pid in args.dex_program else None
