@@ -364,7 +364,20 @@ def main():
             except Exception as exc:
                 row["feature_reconstruction_error"] = type(exc).__name__
         report["records"].append(row)
-        print(f"pilot {index}/{len(cohort)} label={item['label']} init={'found' if init else 'not_found'}", flush=True)
+        # Persist after every token so a workflow timeout still leaves a
+        # recoverable partial report and any feature rows already reconstructed.
+        report["feature_rows"] = [
+            {**record["reconstruction"]["features"],
+             "label": record["label"],
+             "label_source": record["label_source"],
+             "mint": record["mint"],
+             "feature_quality": record["reconstruction"]["feature_quality"]}
+            for record in report["records"] if record.get("reconstruction")
+        ]
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        print(f"pilot {index}/{len(cohort)} label={item['label']} init={'found' if init else 'not_found'} features={'yes' if row.get('reconstruction') else 'no'}", flush=True)
     found = [x for x in report["records"] if x["mint_init"]]
     feature_rows = []
     for record in report["records"]:
