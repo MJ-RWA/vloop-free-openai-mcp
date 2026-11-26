@@ -125,7 +125,7 @@ def holders(url,mint,vaults):
             except Exception:pass
     return totals
 
-def lp_proof(url,tx,lp_mint,lock_ids,slot):
+def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None):
     if not lp_mint:return 0.0,False,0.0,0,False
     initial=0
     for ix in instructions(tx):
@@ -154,7 +154,7 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot):
     try:now=rpc(url,"getBlockTime",[slot])
     except Exception:now=None
     if now:
-        for ix in instructions(tx):
+        for ix in instructions(lock_tx or tx):
             typ,info=parsed_info(ix)
             if ix.get("programId") in lock_ids and "lock" in typ and info.get("mint",info.get("lpMint"))==lp_mint:
                 expiry=info.get("unlockTime",info.get("unlockTimestamp"))
@@ -211,11 +211,27 @@ def main():
     ap.add_argument("--dex-program",action="append",default=[])
     ap.add_argument("--lock-program",action="append",default=[])
     args=ap.parse_args()
-    if not args.dex_program:ap.error("at least one --dex-program is required; use the exact pool program IDs for your venues")
+    if not args.dex_program:ap.error("at least one --dex-program is required; use exact pool program IDs")
     programs=[TOKEN,TOKEN22]+args.dex_program+args.lock_program
     while True:
-        s=None
-        pending={}; sub_program={}; seen=set()
+        s=None; pending={}; sub_program={}; seen=set(); pool_by_lp={}
+        def emit(mint,launch,pool,pool_tx,event_tx,slot):
+            age=slot-launch["slot"]
+            if age<0 or age>15:return
+            ai=account_info(args.rpc,mint)
+            try:mi=ai["data"]["parsed"]["info"]
+            except (TypeError,KeyError):return
+            hs=holders(args.rpc,mint,set(pool["vaults"]))
+            burn,bv,lock,days,lv=lp_proof(args.rpc,pool_tx,pool["lp_mint"],set(args.lock_program),slot,event_tx)
+            activity=slot_metrics(args.rpc,mint,launch["slot"],slot)
+            event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
+              "mint_authority_active":bool(mi.get("mintAuthority")),"freeze_authority_active":bool(mi.get("freezeAuthority")),
+              "holders":hs,"lp_vaults":pool["vaults"],"lp_burn_pct":burn,"lp_burn_verified":bv,
+              "lp_lock_pct":lock,"lp_lock_days":days,"lp_lock_verified":lv,**activity}
+            result=score_launch(event)
+            result["ingestion"]={"signature":event_tx.get("transaction",{}).get("signatures",[""])[0],
+              "pool_programs":args.dex_program,"source":"Solana JSON-RPC WebSocket + parsed transaction"}
+            print(json.dumps(result,separators=(",",":")),flush=True)
         try:
             s=ws_connect(args.ws)
             for i,pid in enumerate(programs,1):
@@ -236,27 +252,25 @@ def main():
                 try:tx=rpc(args.rpc,"getTransaction",[sig,{"encoding":"jsonParsed","commitment":"confirmed","maxSupportedTransactionVersion":0}])
                 except Exception:continue
                 if not tx:continue
-                for mint in launch_mints(tx):pending[mint]={"slot":slot,"mint_tx":tx}
-                pool=pool_info(tx,set(args.dex_program))
-                if not pool:continue
-                for mint in pool["mints"]:
-                    launch=pending.get(mint)
-                    if not launch:continue
-                    age=slot-launch["slot"]
-                    if age<0 or age>15:continue
-                    ai=account_info(args.rpc,mint)
-                    try:mi=ai["data"]["parsed"]["info"]
-                    except (TypeError,KeyError):continue
-                    hs=holders(args.rpc,mint,set(pool["vaults"]))
-                    burn,bv,lock,days,lv=lp_proof(args.rpc,tx,pool["lp_mint"],set(args.lock_program),slot)
-                    activity=slot_metrics(args.rpc,mint,launch["slot"],slot)
-                    event={"mint":mint,"launch_slot":launch["slot"],"event_slot":slot,
-                      "mint_authority_active":bool(mi.get("mintAuthority")),"freeze_authority_active":bool(mi.get("freezeAuthority")),
-                      "holders":hs,"lp_vaults":pool["vaults"],"lp_burn_pct":burn,"lp_burn_verified":bv,
-                      "lp_lock_pct":lock,"lp_lock_days":days,"lp_lock_verified":lv,**activity}
-                    result=score_launch(event)
-                    result["ingestion"]={"signature":sig,"pool_programs":args.dex_program,"source":"Solana JSON-RPC WebSocket + parsed transaction"}
-                    print(json.dumps(result,separators=(",",":")),flush=True)
+                if pid in (TOKEN,TOKEN22):
+                    for mint in launch_mints(tx):pending[mint]={"slot":slot,"mint_tx":tx}
+                    continue
+                pool=pool_info(tx,set(args.dex_program)) if pid in args.dex_program else None
+                if pool:
+                    for mint in pool["mints"]:
+                        launch=pending.get(mint)
+                        if not launch:continue
+                        if pool["lp_mint"]:pool_by_lp[pool["lp_mint"]]=(mint,launch,pool,tx)
+                        emit(mint,launch,pool,tx,tx,slot)
+                    continue
+                if pid in args.lock_program:
+                    for ix in instructions(tx):
+                        typ,info=parsed_info(ix)
+                        lp=info.get("lpMint",info.get("mint"))
+                        saved=pool_by_lp.get(lp)
+                        if saved and "lock" in typ:
+                            mint,launch,pool,pool_tx=saved
+                            emit(mint,launch,pool,pool_tx,tx,slot)
         except (ConnectionError,OSError,TimeoutError) as e:
             print("stream reconnect:",e,file=sys.stderr);time.sleep(2)
         finally:
