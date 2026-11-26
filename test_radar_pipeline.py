@@ -43,6 +43,16 @@ class IngestTests(unittest.TestCase):
         self.assertEqual(solana_ingest.mint_risk_features(info),
           {"metadata_mutable":True,"transfer_fee_bps":250})
 
+    def test_provider_string_false_is_not_mutable_metadata(self):
+        self.assertFalse(solana_ingest.explicit_bool("false",True))
+        self.assertFalse(solana_ingest.mint_risk_features({"mutable":"false"})["metadata_mutable"])
+        self.assertTrue(solana_ingest.mint_risk_features({"mutable":"true"})["metadata_mutable"])
+
+    def test_transfer_fee_outside_basis_point_range_is_ignored(self):
+        info={"extensions":[{"extension":"transferFeeConfig","state":{
+          "newerTransferFee":{"transferFeeBasisPoints":10001}}}]}
+        self.assertEqual(solana_ingest.mint_risk_features(info)["transfer_fee_bps"],0)
+
     def test_token2022_unknown_extensions_do_not_invent_risk(self):
         self.assertEqual(solana_ingest.mint_risk_features({"extensions":[
           {"extension":"nonTransferExtension","state":{"enabled":True}}]}),
