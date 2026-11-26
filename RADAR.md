@@ -120,3 +120,16 @@ A user-run probe against a Helius Mainnet RPC endpoint reported successful `getH
 | 1,460 days | 163,465,783 | 208 | OK |
 
 The endpoint reported `getFirstAvailableBlock = 0`. This is encouraging evidence of deep historical access, but the probe sampled only four blocks and one transaction per block. It does not establish exhaustive retention, full transaction metadata, address-history support, `jsonParsed` support, throughput, or uninterrupted access across every target cohort date. Before bulk reconstruction, separately test `getSignaturesForAddress` on known addresses, `getBlock` with `jsonParsed` and raw `json`, versioned transactions, and several consecutive blocks around selected launch timestamps. Do not include the RPC URL or API key in committed files, logs, or reports. Rotate any credential exposed in chat before large-scale use.
+
+
+## Repeatable Helius probe via GitHub Actions
+
+The repository includes a manual workflow, `.github/workflows/historical-rpc-probe.yml`, and a credential-safe runner, `helius_history_probe.py`. To run it from the fork:
+
+1. Rotate any RPC credential previously pasted into chat or otherwise exposed.
+2. In the fork, open **Settings → Secrets and variables → Actions → New repository secret**.
+3. Set the secret name to `HELIUS_RPC_URL` and its value to the rotated Mainnet RPC URL. Never put the URL in workflow inputs or commit it.
+4. Open **Actions → Historical RPC capability probe → Run workflow** on this branch. The default slots repeat the four historical samples above; up to 20 comma-separated slots may be supplied.
+5. Download the `historical-rpc-probe` artifact and inspect per-slot block retrieval, encoding, transaction metadata coverage, and token-balance rows.
+
+The runner intentionally omits the endpoint URL, credentials, and provider response bodies from its report and logs. This is still a capability probe, not a dataset collector or a backtest. A successful run is only a gate to the next controlled reconstruction pilot; it does not establish exhaustive historical coverage or predictive performance.
