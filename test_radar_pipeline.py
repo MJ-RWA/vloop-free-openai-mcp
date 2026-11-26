@@ -58,6 +58,25 @@ class IngestTests(unittest.TestCase):
         self.assertEqual(p["lp_mint"],"LP111111111111111111111111111111111")
         self.assertIn("Mint111111111111111111111111111111111",p["mints"])
         self.assertEqual(p["vaults"],["Vault11111111111111111111111111111111"])
+    def test_pool_parser_excludes_lp_share_mint(self):
+        tx={"transaction":{"message":{"instructions":[
+          {"programId":"DEX","parsed":{"type":"initializePool","info":{
+            "tokenAMint":"ASSET11111111111111111111111111111111",
+            "tokenBMint":"QUOTE1111111111111111111111111111111",
+            "lpMint":"SHARE1111111111111111111111111111111"}}}]}}}
+        p=solana_ingest.pool_info(tx,{"DEX"})
+        self.assertEqual(p["mints"],{
+          "ASSET11111111111111111111111111111111",
+          "QUOTE1111111111111111111111111111111"})
+        self.assertNotIn(p["lp_mint"],p["mints"])
+
+    def test_pool_parser_does_not_guess_assets_from_unrelated_balances(self):
+        tx={"transaction":{"message":{"instructions":[
+          {"programId":"DEX","parsed":{"type":"initializePool","info":{}}}]}},
+          "meta":{"postTokenBalances":[
+            {"mint":"UNRELATED1111111111111111111111111111"}]}}
+        self.assertIsNone(solana_ingest.pool_info(tx,{"DEX"}))
+
     def test_raydium_v4_initialize2_decoder(self):
         a=[f"Account{i}" for i in range(21)]
         tx={"transaction":{"message":{"instructions":[
