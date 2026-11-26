@@ -115,6 +115,22 @@ class IngestTests(unittest.TestCase):
             self.assertEqual(solana_ingest.lp_burn_mints(rows[0]),{"LP"})
             db.close()
 
+    def test_pool_association_is_restored_from_journal(self):
+        launch={"slot":100,"mint_tx":{"transaction":{"signatures":["mint-sig"]}}}
+        pool={"lp_mint":"LP","vaults":["VAULT"],"mints":{"MINT","QUOTE"}}
+        pool_tx={"transaction":{"signatures":["pool-sig"]}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"burns.sqlite3"
+            db=solana_ingest.open_burn_journal(path)
+            solana_ingest.save_pool_association(db,"LP","MINT",launch,pool,pool_tx)
+            db.close()
+            db=solana_ingest.open_burn_journal(path)
+            restored=solana_ingest.load_pool_associations(db)["LP"]
+            self.assertEqual(restored[0],"MINT")
+            self.assertEqual(restored[1],launch)
+            self.assertEqual(restored[2]["mints"],pool["mints"])
+            self.assertEqual(restored[3],pool_tx)
+            db.close()
     def test_lp_burn_journal_rejects_failed_or_unrelated_transactions(self):
         with tempfile.TemporaryDirectory() as tmp:
             db=solana_ingest.open_burn_journal(Path(tmp)/"burns.sqlite3")
