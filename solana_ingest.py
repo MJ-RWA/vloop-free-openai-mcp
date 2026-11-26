@@ -99,7 +99,7 @@ def pool_info(tx,dex_ids):
     for ix in instructions(tx):
         pid=ix.get("programId")
         typ,info=parsed_info(ix)
-        if pid in dex_ids and (any(w in typ for w in ("initialize","create","open")) or info or (pid==RAYDIUM_V4 and ix.get("data"))):
+        if pid in dex_ids and (any(w in typ for w in ("initialize","create","open")) or (pid==RAYDIUM_V4 and ix.get("data"))):
             mints={v for k,v in info.items() if "mint" in k.lower() and isinstance(v,str) and len(v)>30}
             vaults=[v for k,v in info.items() if ("vault" in k.lower() or "tokenaccount" in k.lower()) and isinstance(v,str)]
             lp=next((v for k,v in info.items() if "lp" in k.lower() and "mint" in k.lower() and isinstance(v,str)),None)
@@ -223,7 +223,9 @@ def main():
     ap.add_argument("--ws",default=os.getenv("SOLANA_WS_URL","wss://api.mainnet-beta.solana.com"))
     ap.add_argument("--dex-program",action="append",default=[])
     ap.add_argument("--lock-program",action="append",default=[])
+    ap.add_argument("--calibration",help="optional isotonic calibration.json from backtest.py")
     args=ap.parse_args()
+    calibration=json.load(open(args.calibration)) if args.calibration else None
     if not args.dex_program:ap.error("at least one --dex-program is required; use exact pool program IDs")
     programs=[TOKEN,TOKEN22]+args.dex_program+args.lock_program
     while True:
@@ -242,6 +244,11 @@ def main():
               "holders":hs,"lp_vaults":pool["vaults"],"lp_burn_pct":burn,"lp_burn_verified":bv,
               "lp_lock_pct":lock,"lp_lock_days":days,"lp_lock_verified":lv,**activity}
             result=score_launch(event)
+            if calibration and result["rug_probability"] is not None:
+                from calibrated_scorer import calibrate
+                result["rug_probability"]=round(calibrate(result["rug_probability"],calibration["knots"]),4)
+                result["momentum_probability"]=round(1-result["rug_probability"],4)
+                result["calibration"]="isotonic; trained on "+str(calibration["train_n"])+" chronological samples"
             result["ingestion"]={"signature":event_tx.get("transaction",{}).get("signatures",[""])[0],
               "pool_programs":args.dex_program,"source":"Solana JSON-RPC WebSocket + parsed transaction"}
             print(json.dumps(result,separators=(",",":")),flush=True)
