@@ -53,8 +53,10 @@ def ws_send(s,obj):
     mask=os.urandom(4); s.sendall(h+mask+bytes(x^mask[i%4] for i,x in enumerate(b)))
 
 def ws_recv(s):
+    fragments=[]
+    message_opcode=None
     while True:
-        a,b=exact(s,2); op=a&15; n=b&127
+        a,b=exact(s,2); fin=bool(a&128); op=a&15; n=b&127
         if n==126:n=struct.unpack("!H",exact(s,2))[0]
         elif n==127:n=struct.unpack("!Q",exact(s,8))[0]
         mask=exact(s,4) if b&128 else None; data=exact(s,n)
@@ -64,8 +66,20 @@ def ws_recv(s):
             mask=os.urandom(4); payload=bytes(x^mask[i%4] for i,x in enumerate(data))
             s.sendall(bytes([0x8a,0x80|len(data)])+mask+payload);continue
         if op==10:continue
-        if op==1:return json.loads(data)
-        if op not in (0,):continue
+        if op==1:
+            if message_opcode is not None:raise ConnectionError("nested WebSocket data frame")
+            message_opcode=op
+            fragments=[data]
+            if fin:return json.loads(data)
+        elif op==0 and message_opcode==1:
+            fragments.append(data)
+            if fin:return json.loads(b"".join(fragments))
+        elif op in (2,):
+            if not fin:message_opcode=op
+            else:message_opcode=None
+            fragments=[]
+        elif op==0:
+            continue
 
 def instructions(tx):
     tx=tx or {}; msg=tx.get("transaction",{}).get("message") or tx.get("message",{})
