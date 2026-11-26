@@ -13,12 +13,6 @@ on:
         required: true
         default: "60"
         type: string
-  push:
-    branches:
-      - feat/issue-1-rug-radar-verified-risk
-    paths:
-      - ".github/workflows/historical-rpc-probe.yml"
-      - "helius_history_probe.py"
 
 permissions:
   contents: read
