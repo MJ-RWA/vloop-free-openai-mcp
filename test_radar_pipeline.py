@@ -18,17 +18,17 @@ class BacktestTests(unittest.TestCase):
 class IngestTests(unittest.TestCase):
     def test_mint_init_detection(self):
         tx={"transaction":{"message":{"instructions":[
-          {"parsed":{"type":"initializeMint","info":{"mint":"Mint111"}}}]}}}
-        self.assertEqual(solana_ingest.launch_mints(tx),["Mint111"])
+          {"parsed":{"type":"initializeMint","info":{"mint":"Mint111111111111111111111111111111111"}}}]}}}
+        self.assertEqual(solana_ingest.launch_mints(tx),["Mint111111111111111111111111111111111"])
     def test_pool_parser_uses_configured_program(self):
         tx={"transaction":{"message":{"instructions":[
           {"programId":"DEX","parsed":{"type":"initializePool","info":{
-            "tokenAMint":"Mint111","tokenBMint":"Quote111","lpMint":"LP111",
-            "tokenAVault":"Vault111"}}}]}}}
+            "tokenAMint":"Mint111111111111111111111111111111111","tokenBMint":"Quote11111111111111111111111111111111","lpMint":"LP111111111111111111111111111111111",
+            "tokenAVault":"Vault11111111111111111111111111111111"}}}]}}}
         p=solana_ingest.pool_info(tx,{"DEX"})
-        self.assertEqual(p["lp_mint"],"LP111")
-        self.assertIn("Mint111",p["mints"])
-        self.assertEqual(p["vaults"],["Vault111"])
+        self.assertEqual(p["lp_mint"],"LP111111111111111111111111111111111")
+        self.assertIn("Mint111111111111111111111111111111111",p["mints"])
+        self.assertEqual(p["vaults"],["Vault11111111111111111111111111111111"])
     def test_raydium_v4_initialize2_decoder(self):
         a=[f"Account{i}" for i in range(21)]
         tx={"transaction":{"message":{"instructions":[
@@ -39,7 +39,7 @@ class IngestTests(unittest.TestCase):
         self.assertEqual(p["vaults"],[a[10],a[11]])
     def test_pool_parser_ignores_unconfigured_program(self):
         tx={"transaction":{"message":{"instructions":[
-          {"programId":"OTHER","parsed":{"type":"initializePool","info":{"tokenMint":"Mint111"}}}]}}}
+          {"programId":"OTHER","parsed":{"type":"initializePool","info":{"tokenMint":"Mint111111111111111111111111111111111"}}}]}}}
         self.assertIsNone(solana_ingest.pool_info(tx,{"DEX"}))
     def test_slot_metrics_counts_net_buys_and_launch_funders(self):
         def make(payer,delta):
