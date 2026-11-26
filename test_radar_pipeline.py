@@ -35,9 +35,9 @@ class IngestTests(unittest.TestCase):
         self.assertIsNone(solana_ingest.pool_info(tx,{"DEX"}))
     def test_slot_metrics_counts_net_buys_and_launch_funders(self):
         def make(payer,delta):
-            return {"transaction":{"message":{"accountKeys":[{"pubkey":payer}]}},
-              "meta":{"preTokenBalances":[{"mint":"M","accountIndex":1,"uiTokenAmount":{"amount":"0"}}],
-              "postTokenBalances":[{"mint":"M","accountIndex":1,"uiTokenAmount":{"amount":str(delta)}}]}}
+            return {"transaction":{"message":{"accountKeys":[{"pubkey":payer,"signer":True}]}},
+              "meta":{"preTokenBalances":[{"mint":"M","accountIndex":1,"owner":payer,"uiTokenAmount":{"amount":"0"}}],
+              "postTokenBalances":[{"mint":"M","accountIndex":1,"owner":payer,"uiTokenAmount":{"amount":str(delta)}}]}}
         blocks={10:{"transactions":[make("A",100),make("B",200)]},
                 11:{"transactions":[make("C",300)]}}
         with patch.object(solana_ingest,"rpc",side_effect=lambda u,m,p:blocks[p[0]]):
