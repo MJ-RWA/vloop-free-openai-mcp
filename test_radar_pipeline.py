@@ -45,16 +45,32 @@ class IngestTests(unittest.TestCase):
         pool={"transaction":{"message":{"instructions":[
           {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
         lock={"transaction":{"message":{"instructions":[
-          {"programId":"LOCK","parsed":{"type":"lock","info":{"lpMint":"LP","amount":"250","unlockTime":1000+90*86400}}}]}}}
+          {"programId":"LOCK","parsed":{"type":"lock","info":{"lpMint":"LP","amount":"250","tokenAccount":"LOCKVAULT","unlockTime":1000+90*86400}}}]}}}
         def fake_rpc(url,method,params):
             if method=="getTokenSupply":return {"value":{"amount":"500"}}
             if method=="getBlockTime":return 1000
+            if method=="getAccountInfo":return {"value":{"data":{"parsed":{"info":{"mint":"LP","tokenAmount":{"amount":"250"}}}}}}
             raise AssertionError(method)
         with patch.object(solana_ingest,"rpc",side_effect=fake_rpc):
             burn,bv,locked,days,lv=solana_ingest.lp_proof("rpc",pool,"LP",{"LOCK"},5,lock)
         self.assertEqual(burn,50)
         self.assertTrue(bv)
         self.assertEqual((locked,days,lv),(25,90,True))
+
+    def test_lp_lock_requires_matching_vault_balance(self):
+        pool={"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
+        lock={"transaction":{"message":{"instructions":[
+          {"programId":"LOCK","parsed":{"type":"lock","info":{"lpMint":"LP","amount":"250","tokenAccount":"VAULT","unlockTime":1000+90*86400}}}]}}}
+        def fake_rpc(url,method,params):
+            if method=="getTokenSupply":return {"value":{"amount":"1000"}}
+            if method=="getBlockTime":return 1000
+            if method=="getAccountInfo":return {"value":{"data":{"parsed":{"info":{"mint":"OTHER","tokenAmount":{"amount":"250"}}}}}}
+            raise AssertionError(method)
+        with patch.object(solana_ingest,"rpc",side_effect=fake_rpc):
+            burn,bv,locked,days,lv=solana_ingest.lp_proof("rpc",pool,"LP",{"LOCK"},5,lock)
+        self.assertFalse(lv)
+        self.assertEqual((locked,days),(0.0,0))
 
     def test_lp_burn_supply_delta_is_not_double_counted(self):
         pool={"transaction":{"message":{"instructions":[
