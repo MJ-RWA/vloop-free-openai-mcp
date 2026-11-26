@@ -20,6 +20,14 @@ class IngestTests(unittest.TestCase):
         tx={"transaction":{"message":{"instructions":[
           {"parsed":{"type":"initializeMint","info":{"mint":"Mint111111111111111111111111111111111"}}}]}}}
         self.assertEqual(solana_ingest.launch_mints(tx),["Mint111111111111111111111111111111111"])
+    def test_lp_burn_detection_includes_inner_instructions(self):
+        tx={"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"transfer","info":{"mint":"OTHER"}}}]}},
+          "meta":{"innerInstructions":[{"index":0,"instructions":[
+            {"parsed":{"type":"burnChecked","info":{"mint":"LP111111111111111111111111111111111","amount":"10"}}},
+            {"parsed":{"type":"burn","info":{"mint":"LP222222222222222222222222222222222","amount":"5"}}}]}]}}
+        self.assertEqual(solana_ingest.lp_burn_mints(tx),{
+          "LP111111111111111111111111111111111","LP222222222222222222222222222222222"})
     def test_pool_parser_uses_configured_program(self):
         tx={"transaction":{"message":{"instructions":[
           {"programId":"DEX","parsed":{"type":"initializePool","info":{
