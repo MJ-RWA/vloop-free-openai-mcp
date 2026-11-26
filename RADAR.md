@@ -108,6 +108,21 @@ py -3.12 faithful_probe.py --slot 150000000 --slot 160000000 --timeout 90
 Or pass `--rpc` directly. Add `--address <PUBKEY>` only to diagnose address-history lookup; failure of that method does not prevent the bounded slot-scan path. The probe tests `getVersion`, `getFirstAvailableBlock`, `getSlot`, `getBlocks`, `getBlockTime`, `getBlock`, and a sample `getTransaction`. It first tries `jsonParsed`, then falls back to raw `json` and reports which encoding worked. Raw JSON availability means the historical block is retrievable, but it does not by itself provide parsed SPL instruction fields; raw instruction decoding is still required if `jsonParsed` is unavailable.
 
 Probe at least one known slot from each target epoch, including a slot whose signature and transaction metadata have been independently checked. A null response, unsupported method, missing transaction metadata, or a successful sample from only one epoch is not evidence of complete history. Save the JSON output with the reconstruction audit. Do not start large-scale collection until block coverage and transaction metadata are verified across the cohort's full date range.
+### Historical feature-row reconstruction
+
+The reconstruction pilot now attempts to emit a scorer-compatible feature_rows array in its JSON report and a historical_features.jsonl file for the backtest runner. It reconstructs token-account balances from pre/post token-balance metadata in the produced slots after mint initialization, parses mint/freeze authority changes, observes LP mint/burn instructions when a configured pool decoder exposes the LP mint, and computes early-activity counters over the launch-to-15-slot window.
+
+This is still an exploratory reconstruction, not yet a validated historical dataset. In particular:
+
+- Holder balances are reconstructed only from token-account changes visible in the fetched launch window; accounts or balance changes omitted by RPC metadata can make the distribution incomplete.
+- Metadata mutability and Token-2022 transfer-fee state are not yet fully reconstructed from historical extension instructions.
+- LP locks are left unverified. LP burn evidence is limited to explicit LP mint/burn instructions found in the sampled window.
+- Initial SOL liquidity and FDV are unavailable in this pass and remain zero defaults; they must not be interpreted as observed zero liquidity or valuation.
+- Jito bundle count remains zero without provider-specific bundle metadata.
+- The source q1 labels are later market-outcome labels, not evidence of malicious intent. The first-15-slot feature rows must be audited for coverage and leakage before model evaluation.
+
+The workflow exports the feature JSONL alongside the audit report. backtest.py intentionally requires at least 50 complete in-window labeled rows and both classes in each chronological partition; the current bounded pilot is not expected to satisfy that threshold. Do not lower the threshold merely to manufacture performance metrics.
+
 
 ## Helius historical RPC probe (user-run)
 
