@@ -115,6 +115,13 @@ class IngestTests(unittest.TestCase):
         tx={"transaction":{"message":{"instructions":[
           {"programId":"OTHER","parsed":{"type":"initializePool","info":{"tokenMint":"Mint111111111111111111111111111111111"}}}]}}}
         self.assertIsNone(solana_ingest.pool_info(tx,{"DEX"}))
+    def test_locker_event_lp_mint_extraction(self):
+        tx={"transaction":{"message":{"instructions":[
+          {"programId":"LOCK","parsed":{"type":"lock","info":{"lpMint":"LP-A"}}},
+          {"programId":"OTHER","parsed":{"type":"transfer","info":{"mint":"NOT-LP"}}},
+          {"programId":"LOCK","parsed":{"type":"unlock","info":{"mint":"LP-B"}}}]}}}
+        self.assertEqual(solana_ingest.lock_event_lp_mints(tx),{"LP-A"})
+
     def test_lp_burn_and_lock_require_onchain_proof(self):
         pool={"meta":{"err":None},"transaction":{"message":{"instructions":[
           {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}},
