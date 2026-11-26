@@ -183,7 +183,7 @@ def slot_metrics(url,mint,start,end):
     """Measure early buys, shared SOL funders and same-wallet round trips."""
     buys=[]; funders0=set(); same_slot={}; buyers=set(); sellers=set()
     for slot in range(start,end+1):
-        try:block=rpc(url,"getBlock",[slot,{"encoding":"jsonParsed","transactionDetails":"full","rewards":False,"maxSupportedTransactionVersion":0}])
+        try:block=rpc(url,"getBlock",[slot,{"encoding":"jsonParsed","transactionDetails":"full","rewards":False,"maxSupportedTransactionVersion":1}])
         except Exception:continue
         entries=(block or {}).get("transactions",[]); funding={}
         for entry in entries:
@@ -270,7 +270,7 @@ def main():
                 if pid in (TOKEN,TOKEN22) and not any("InitializeMint" in x for x in logs):continue
                 if pid in args.dex_program and not any(any(k in x.lower() for k in ("initialize","create","open")) for x in logs):continue
                 seen.add(key)
-                try:tx=rpc(args.rpc,"getTransaction",[sig,{"encoding":"jsonParsed","commitment":"confirmed","maxSupportedTransactionVersion":0}])
+                try:tx=rpc(args.rpc,"getTransaction",[sig,{"encoding":"jsonParsed","commitment":"confirmed","maxSupportedTransactionVersion":1}])
                 except Exception:continue
                 if not tx:continue
                 if pid in (TOKEN,TOKEN22):
