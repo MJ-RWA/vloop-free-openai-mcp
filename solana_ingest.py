@@ -341,7 +341,7 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None,burn_txs=None):
     if now:
         for ix in instructions(lock_tx or tx):
             typ,info=parsed_info(ix)
-            if ix.get("programId") in lock_ids and "lock" in typ and info.get("mint",info.get("lpMint"))==lp_mint:
+            if ix.get("programId") in lock_ids and typ.startswith("lock") and not typ.startswith("unlock") and info.get("mint",info.get("lpMint"))==lp_mint:
                 expiry=info.get("unlockTime",info.get("unlockTimestamp"))
                 amount=info.get("amount")
                 vault=next((info.get(k) for k in ("tokenAccount","lpTokenAccount","vault","escrow","destination") if isinstance(info.get(k),str)),None)
