@@ -148,17 +148,14 @@ def lp_proof(url,tx,lp_mint,lock_ids,slot,lock_tx=None):
             except (ValueError,TypeError):pass
     try:
         supply=int(rpc(url,"getTokenSupply",[lp_mint])["value"]["amount"])
-        largest=rpc(url,"getTokenLargestAccounts",[lp_mint])["value"]
     except Exception:return 0.0,False,0.0,0,False
-    burned=0
-    for item in largest:
-        try:
-            ai=account_info(url,item["address"])
-            owner=ai["data"]["parsed"]["info"]["owner"]
-            if owner in BURN:burned+=int(item["amount"])
-        except Exception:pass
+    # A decrease from the observed initial mint-to amount is already the
+    # on-chain burn evidence. Adding balances held by burn addresses would
+    # double-count those same tokens, because burned tokens are absent from
+    # current supply. If supply exceeds the observed initial amount, later
+    # minting or incomplete initial-mint evidence makes the result unknown.
     if initial and initial>=supply:
-        pct=min(100,100*max(0,initial-supply+burned)/initial)
+        pct=min(100,100*(initial-supply)/initial)
         burn_ok=pct>0
     else:pct=0.0;burn_ok=False
     locked=0.0;days=0;lock_ok=False
