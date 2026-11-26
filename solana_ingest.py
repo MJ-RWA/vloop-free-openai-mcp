@@ -118,7 +118,8 @@ def open_burn_journal(path):
 def record_lp_burn(db,lp_mint,slot,tx):
     """Persist only successful transactions with an explicit matching burn."""
     meta=(tx or {}).get("meta") or {}
-    signature=(tx or {}).get("transaction",{}).get("signatures",[""])[0]
+    signatures=(tx or {}).get("transaction",{}).get("signatures",[])
+    signature=signatures[0] if signatures else ""
     if meta.get("err") is not None or not signature or lp_mint not in lp_burn_mints(tx):
         return False
     db.execute("INSERT OR IGNORE INTO lp_burns VALUES (?,?,?,?)", (lp_mint,signature,int(slot),json.dumps(tx,separators=(",",":"))))
