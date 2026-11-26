@@ -48,7 +48,6 @@ class IngestTests(unittest.TestCase):
           {"programId":"LOCK","parsed":{"type":"lock","info":{"lpMint":"LP","amount":"250","unlockTime":1000+90*86400}}}]}}}
         def fake_rpc(url,method,params):
             if method=="getTokenSupply":return {"value":{"amount":"500"}}
-            if method=="getTokenLargestAccounts":return {"value":[]}
             if method=="getBlockTime":return 1000
             raise AssertionError(method)
         with patch.object(solana_ingest,"rpc",side_effect=fake_rpc):
@@ -57,6 +56,17 @@ class IngestTests(unittest.TestCase):
         self.assertTrue(bv)
         self.assertEqual((locked,days,lv),(25,90,True))
 
+    def test_lp_burn_supply_delta_is_not_double_counted(self):
+        pool={"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
+        def fake_rpc(url,method,params):
+            if method=="getTokenSupply":return {"value":{"amount":"500"}}
+            raise AssertionError(method)
+        with patch.object(solana_ingest,"rpc",side_effect=fake_rpc):
+            burn,bv,locked,days,lv=solana_ingest.lp_proof("rpc",pool,"LP",set(),5)
+        self.assertEqual(burn,50)
+        self.assertTrue(bv)
+        self.assertEqual((locked,days,lv),(0.0,0,False))
     def test_slot_metrics_counts_net_buys_and_launch_funders(self):
         def make(payer,delta):
             return {"transaction":{"message":{"accountKeys":[{"pubkey":payer,"signer":True}]}},
