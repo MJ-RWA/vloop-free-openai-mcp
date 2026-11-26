@@ -60,3 +60,28 @@ Do not publish a performance claim until the input file, label definition, sampl
 python -B -m unittest discover -s . -v
 python -B -c "from pathlib import Path; p=Path('spl_rug_radar.py'); assert p.stat().st_size <= 8192, p.stat().st_size; print(p.stat().st_size)"
 ```
+
+## Bounded historical mint discovery
+
+```sh
+python historical_collect.py --days 1 --max-blocks 100 \
+  --out historical_mint_candidates.jsonl \
+  --checkpoint historical_mint_checkpoint.json
+```
+
+The collector timestamp-aligns the requested lookback, enumerates produced
+slots in bounded `getBlocks` ranges, and fetches at most the requested
+number of blocks (deterministic sampling by default). It resumes from a
+checkpoint and appends deduplicated mint-initialization candidates to JSONL.
+Use `--max-blocks 0` only when you explicitly intend to fetch every
+produced block in the window; a full day can involve a very large number of
+RPC requests and may exceed public endpoint limits.
+
+Each output row contains the mint, launch slot, block time, transaction
+signature and an intentionally null label. This is discovery output only:
+sampling can miss launches, and a mint initialization alone does not establish
+a DEX pool, a rug, or a safe launch. Do not feed these rows directly into
+`backtest.py`. The next stage must associate candidates with configured
+pool-creation transactions, reconstruct features available within 15 slots,
+and attach independently reviewed outcome labels. Preserve signatures and
+label provenance for auditability.
