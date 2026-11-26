@@ -6,6 +6,7 @@ blocks in a requested age window, optionally samples at most --max-blocks, and
 writes mint-initialization candidates with signatures and source slots to JSONL.
 """
 import argparse
+import http.client
 import json
 import os
 import random
@@ -35,7 +36,12 @@ def rpc(url, method, params, retries=5):
             last = {"http_status": exc.code, "detail": exc.read(500).decode("utf-8", "replace")}
             if exc.code != 429:
                 raise RuntimeError(last) from exc
-        except (TimeoutError, OSError) as exc:
+        except http.client.IncompleteRead as exc:
+            # Public RPC responses can be several MB; a dropped connection may
+            # leave a partial body. Retry the same request rather than marking
+            # the slot complete or losing the checkpoint.
+            last = {"incomplete_read": str(exc), "partial_bytes": len(exc.partial or b"")}
+        except (http.client.HTTPException, TimeoutError, OSError) as exc:
             last = {"exception": str(exc)}
         if attempt < retries:
             delay = min(30, 2 ** attempt)
