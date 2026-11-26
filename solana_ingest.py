@@ -95,13 +95,6 @@ def b58decode(value):
     raw=n.to_bytes((n.bit_length()+7)//8,"big") if n else b""
     return b"\\0"*(len(value)-len(value.lstrip("1")))+raw
 
-def b58decode(value):
-    alphabet="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-    n=0
-    for ch in value:n=n*58+alphabet.index(ch)
-    raw=n.to_bytes((n.bit_length()+7)//8,"big") if n else b""
-    return b"\\0"*(len(value)-len(value.lstrip("1")))+raw
-
 def pool_info(tx,dex_ids):
     for ix in instructions(tx):
         pid=ix.get("programId")
