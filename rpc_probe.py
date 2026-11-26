@@ -48,6 +48,35 @@ def find_block_time(url, slot):
     raise RuntimeError(f"could not obtain block time near slot {slot}")
 
 
+def find_slot_for_timestamp(url, target_time, current_slot):
+    """Binary-search slot space using RPC block timestamps, not a fixed slot rate."""
+    low, high = 0, current_slot
+    best = None
+    while low <= high:
+        mid = (low + high) // 2
+        slot, timestamp = find_block_time(url, mid)
+        best = (slot, timestamp)
+        if timestamp < target_time:
+            low = mid + 1
+        elif timestamp > target_time:
+            high = mid - 1
+        else:
+            break
+        if high - low < 32:
+            break
+    # Search the narrow remaining interval and choose the closest produced block.
+    candidates = []
+    for probe in (low, high, (low + high) // 2):
+        if probe < 0:
+            continue
+        slot, timestamp = find_block_time(url, probe)
+        candidates.append((abs(timestamp - target_time), slot, timestamp))
+    if best is not None:
+        candidates.append((abs(best[1] - target_time), best[0], best[1]))
+    _, slot, timestamp = min(candidates)
+    return slot, timestamp
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rpc", default="https://api.mainnet-beta.solana.com")
@@ -72,19 +101,18 @@ def main():
 
     try:
         anchor_slot, anchor_time = find_block_time(args.rpc, current_slot)
-        older_slot, older_time = find_block_time(args.rpc, max(0, anchor_slot - 100000))
-        elapsed = anchor_time - older_time
-        if elapsed <= 0:
-            raise RuntimeError("non-positive elapsed time between block-time anchors")
-        slots_per_second = (anchor_slot - older_slot) / elapsed
-        print(f"slot_rate: {slots_per_second:.4f} slots/second "
-              f"(anchors {older_slot}->{anchor_slot}; {older_time}->{anchor_time})")
+        print(f"current_anchor: slot={anchor_slot} blockTime={anchor_time}")
     except RuntimeError as exc:
-        raise SystemExit(f"Cannot time-align historical samples: {exc}")
+        raise SystemExit(f"Cannot obtain current block time: {exc}")
 
     for days in args.days:
-        # Estimate target slot from observed chain timestamps, not a fixed slot duration.
-        target = max(0, anchor_slot - int(days * 86400 * slots_per_second))
+        # Find the target by timestamp so long-range slot-rate drift cannot skew the date.
+        target_time = anchor_time - days * 86400
+        try:
+            target, target_block_time = find_slot_for_timestamp(args.rpc, target_time, anchor_slot)
+        except RuntimeError as exc:
+            print(f"history_{days}d: INCONCLUSIVE timestamp search failed: {exc}")
+            continue
         lo, hi = max(0, target - args.window), target + args.window
         ok, slots, ms = call(args.rpc, "getBlocks", [lo, hi])
         if not ok:
