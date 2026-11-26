@@ -328,7 +328,9 @@ def main():
                         match=correlator.add_mint(mint,{"slot":slot,"mint_tx":tx},slot)
                         if match:
                             launch,pool,pool_tx,pool_slot=match
-                            if pool["lp_mint"]:pool_by_lp[pool["lp_mint"]]=(mint,launch,pool,pool_tx)
+                            if pool["lp_mint"]:
+                                pool_by_lp[pool["lp_mint"]]=(mint,launch,pool,pool_tx)
+                                if len(pool_by_lp)>10000:pool_by_lp.pop(next(iter(pool_by_lp)))
                             emit(mint,launch,pool,pool_tx,pool_tx,pool_slot)
                     continue
                 pool=pool_info(tx,set(args.dex_program)) if pid in args.dex_program else None
@@ -337,7 +339,9 @@ def main():
                         match=correlator.add_pool(mint,pool,tx,slot,slot)
                         if not match:continue
                         launch,matched_pool,pool_tx,pool_slot=match
-                        if matched_pool["lp_mint"]:pool_by_lp[matched_pool["lp_mint"]]=(mint,launch,matched_pool,pool_tx)
+                        if matched_pool["lp_mint"]:
+                            pool_by_lp[matched_pool["lp_mint"]]=(mint,launch,matched_pool,pool_tx)
+                            if len(pool_by_lp)>10000:pool_by_lp.pop(next(iter(pool_by_lp)))
                         emit(mint,launch,matched_pool,pool_tx,pool_tx,pool_slot)
                     continue
                 if pid in args.lock_program:
