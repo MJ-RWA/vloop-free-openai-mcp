@@ -20,12 +20,14 @@ def apply(p, knots):
 
 def chronological_split(data,fraction=.7):
     """Split only between launch slots so same-slot launches cannot straddle sets."""
-    slots=sorted({row[0] for row in data})
+    counts={}
+    for row in data:counts[row[0]]=counts.get(row[0],0)+1
+    slots=sorted(counts)
     if len(slots)<2:raise ValueError("need at least two distinct launch slots for a chronological split")
     target=max(1,min(len(data)-1,int(len(data)*fraction)))
     seen=0; cut_slot=None
     for slot in slots[:-1]:
-        seen+=sum(1 for row in data if row[0]==slot)
+        seen+=counts[slot]
         if seen>=target:
             cut_slot=slot
             break
