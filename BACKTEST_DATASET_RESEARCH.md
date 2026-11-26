@@ -52,7 +52,7 @@ The Yellowstone Old Faithful project describes a genesis-to-tip Solana block arc
 
 **Do not download an entire epoch CAR by default.** An Old Faithful epoch folder publishes a CAR plus several indexes, including slot-to-CID, CID-to-offset/size and transaction/signature indexes. Its RPC server accepts HTTP URLs for CAR and index files, provided the hosting endpoint supports HTTP Range requests. That creates a better pilot route: configure the RPC server against the remote epoch CAR and its matching indexes, then request only the target slots/transactions through RPC. This is still an integration task, not a guaranteed public hosted RPC endpoint; it depends on the remote files and range requests being reachable and the matching indexes being available.
 
-The archive is large enough that bulk processing is not a sensible first step: a third-party parser reports epoch CARs on the order of hundreds of gigabytes, while the official documentation recommends local high-speed index storage for large-scale deployments. The pilot should therefore:
+The archive is large enough that bulk processing is not a sensible first step. The official documentation recommends local high-speed index storage for performance. Importantly, the RPC documentation says indexes can be remote over HTTP, but the GSFA index required for full `getSignaturesForAddress` support cannot currently be used remotely; remote-index operation therefore has a limitation for address-history discovery. The documentation also describes a signatures-only mode for remote GSFA usage, which must be tested against the exact methods needed by this collector. Do not assume a remote CAR plus remote indexes automatically provides every Solana RPC method. The pilot should therefore:
 1. Resolve a handful of q1 token creation timestamps to candidate slots and epochs.
 2. Check that each epoch folder exposes the CAR and the exact matching indexes.
 3. Verify HTTP Range support for the CAR and index URLs.
@@ -60,11 +60,13 @@ The archive is large enough that bulk processing is not a sensible first step: a
 5. Fetch a few known slots and transactions, checking block slot, signatures, transaction metadata and completeness.
 6. Only then scale to a bounded sample of labeled mints.
 
+**Method-coverage caveat:** Old Faithful's published RPC page explicitly says the GSFA index required for `getSignaturesForAddress` cannot currently be used remotely. The first pilot should prioritize slot-addressable `getBlock` retrieval, and separately test whether the collector's address-history discovery can be served by a locally generated GSFA index or a compatible signatures-only setup. If the required account-signature scans cannot be supported, the reconstruction design must be changed to enumerate transactions by slot over a bounded window or use another archive/index service. A successful HTTP Range test alone is not proof that the needed RPC methods work.
+
 If remote range access or required indexes are unavailable, the fallback is a local epoch CAR download and index build, which may require substantial disk space. Do not download the full archive for this bounty.
 
 ### 2. Solarchive is useful, but its currently published transaction coverage is not enough for this cohort
 
-Solarchive offers free Parquet exports, CC BY 4.0 licensing, schemas and daily transaction partitions. However, its public historical-readiness page currently marks transaction partitions only through March 2022, while the audited q1 cohort begins in September 2022. Account/token snapshots are shown for later months, but those do not replace transaction-level launch reconstruction.
+Solarchive offers free Parquet exports and CC BY 4.0 licensing. Its current historical-readiness table shows transaction partitions for October 2020 through March 2022 and again for November-December 2025, while the audited q1 cohort begins in September 2022 and ends in October 2024. It currently shows account/token snapshots (not transaction partitions) for the intervening months. Those snapshots do not replace transaction-level launch reconstruction.
 
 - Project and download instructions: https://solarchive.org/
 - Historical-readiness table: https://solarchive.org/search.php
@@ -115,4 +117,4 @@ Once the reconstruction is complete:
 - Old Faithful's public archive is a data-access route, not a ready-made labeled benchmark. Respect its project/data terms and cite the archive if used.
 - The paper's own data-availability statement says edge-level data and processed EDA artifacts are not included in the repository at present; the external SolRPDS data must be obtained separately.
 
-**Current project status:** a labeled research cohort and a technically plausible archive route have been identified. The q1 labels can potentially supervise a new first-15-slot reconstruction, but no first-15-slot rows have yet been reconstructed and no real holdout metrics have been produced. The scorer must continue to be described as heuristic until that experiment is actually run.
+**Current project status (2026-11-26):** a labeled research cohort and a technically plausible archive route have been identified. The q1 labels can potentially supervise a new first-15-slot reconstruction, but no first-15-slot rows have yet been reconstructed and no real holdout metrics have been produced. The latest documentation-only commit for this report passed the repository's GitHub Actions workflow; that CI result verifies the repository checks, not historical-data coverage or model performance. The scorer must continue to be described as heuristic until the reconstruction and holdout experiment are actually run.
