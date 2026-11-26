@@ -98,6 +98,17 @@ class IngestTests(unittest.TestCase):
         self.assertTrue(bv)
         self.assertEqual((locked,days,lv),(0.0,0,False))
 
+    def test_multiple_lp_burn_transactions_are_aggregated(self):
+        pool={"meta":{"err":None},"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
+        burns=[{"meta":{"err":None},"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"burn","info":{"mint":"LP","amount":"200"}}}]}}},
+          {"meta":{"err":None},"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"burnChecked","info":{"mint":"LP","amount":"300"}}}]}}}]
+        burn,bv,_,_,_=solana_ingest.lp_proof("rpc",pool,"LP",set(),5,burns[-1],burns)
+        self.assertEqual(burn,50)
+        self.assertTrue(bv)
+
     def test_failed_lp_burn_transaction_is_not_counted(self):
         pool={"transaction":{"message":{"instructions":[
           {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
