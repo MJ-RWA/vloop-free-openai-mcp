@@ -107,3 +107,16 @@ py -3.12 faithful_probe.py --slot 150000000 --slot 160000000 --timeout 90
 Or pass `--rpc` directly. Add `--address <PUBKEY>` only to diagnose address-history lookup; failure of that method does not prevent the bounded slot-scan path. The probe tests `getVersion`, `getFirstAvailableBlock`, `getSlot`, `getBlocks`, `getBlockTime`, `getBlock`, and a sample `getTransaction`. It first tries `jsonParsed`, then falls back to raw `json` and reports which encoding worked. Raw JSON availability means the historical block is retrievable, but it does not by itself provide parsed SPL instruction fields; raw instruction decoding is still required if `jsonParsed` is unavailable.
 
 Probe at least one known slot from each target epoch, including a slot whose signature and transaction metadata have been independently checked. A null response, unsupported method, missing transaction metadata, or a successful sample from only one epoch is not evidence of complete history. Save the JSON output with the reconstruction audit. Do not start large-scale collection until block coverage and transaction metadata are verified across the cohort's full date range.
+
+## Helius historical RPC probe (user-run)
+
+A user-run probe against a Helius Mainnet RPC endpoint reported successful `getHealth`, `getSlot`, and `getFirstAvailableBlock` calls. It sampled one block and one transaction at approximately 365, 730, 1,095, and 1,460 days before the probe anchor. All four sampled `getBlocks`/`getBlock`/`getTransaction` paths returned successfully:
+
+| Approximate age | Sample slot | Transactions in sampled block | Sample transaction |
+|---:|---:|---:|---|
+| 365 days | 382,619,204 | 1,128 | OK |
+| 730 days | 303,713,493 | 2,051 | OK |
+| 1,095 days | 232,538,996 | 3,704 | OK |
+| 1,460 days | 163,465,783 | 208 | OK |
+
+The endpoint reported `getFirstAvailableBlock = 0`. This is encouraging evidence of deep historical access, but the probe sampled only four blocks and one transaction per block. It does not establish exhaustive retention, full transaction metadata, address-history support, `jsonParsed` support, throughput, or uninterrupted access across every target cohort date. Before bulk reconstruction, separately test `getSignaturesForAddress` on known addresses, `getBlock` with `jsonParsed` and raw `json`, versioned transactions, and several consecutive blocks around selected launch timestamps. Do not include the RPC URL or API key in committed files, logs, or reports. Rotate any credential exposed in chat before large-scale use.
