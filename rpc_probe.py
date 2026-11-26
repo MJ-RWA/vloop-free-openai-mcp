@@ -104,9 +104,14 @@ def main():
         txs = block.get("transactions", [])
         signature = None
         if txs:
-            signatures = txs[0].get("signatures", [])
-            if signatures:
-                signature = signatures[0]
+            first_tx = txs[0]
+            # With transactionDetails="signatures", RPC returns signature strings.
+            if isinstance(first_tx, str):
+                signature = first_tx
+            elif isinstance(first_tx, dict):
+                signatures = first_tx.get("signatures", [])
+                if signatures:
+                    signature = signatures[0]
         if not signature:
             print(f"history_{days}d: BLOCK_OK slot={slot} tx_count={len(txs)} but no sample signature")
             continue
