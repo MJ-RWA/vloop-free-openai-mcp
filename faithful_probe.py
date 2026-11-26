@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Probe a Yellowstone Old Faithful-compatible Solana JSON-RPC endpoint.
 
-This checks the exact methods needed for bounded, slot-addressed historical
-reconstruction. It does not claim archive completeness from a successful sample.
+Checks slot-addressed historical methods and whether jsonParsed is enabled.
+A successful sample is not evidence of exhaustive archive completeness.
 """
 import argparse
 import json
@@ -47,8 +47,8 @@ def inspect_block(block):
     )
     return {
         "status": "OK",
-        "slot": block.get("parentSlot") if block.get("parentSlot") is not None else block.get("slot"),
         "block_time": block.get("blockTime"),
+        "parent_slot": block.get("parentSlot"),
         "transaction_count": len(transactions),
         "metadata_count": metadata_count,
         "transactions_with_metadata": metadata_count,
@@ -59,7 +59,8 @@ def inspect_block(block):
     }
 
 
-def probe(url, slots, address=None):
+def probe(url, slots, address=None, timeout=60):
+    call = lambda method, params: rpc(url, method, params, timeout)
     report = {"endpoint": url, "capabilities": {}, "slots": [], "address_history": None}
     for method, params in (
         ("getVersion", []),
@@ -67,52 +68,59 @@ def probe(url, slots, address=None):
         ("getSlot", [{"commitment": "finalized"}]),
     ):
         try:
-            report["capabilities"][method] = {"ok": True, "result": rpc(url, method, params)}
+            report["capabilities"][method] = {"ok": True, "result": call(method, params)}
         except RuntimeError as exc:
             report["capabilities"][method] = {"ok": False, "error": str(exc)}
 
     for slot in slots:
         row = {"requested_slot": slot}
         try:
-            produced = rpc(url, "getBlocks", [slot, slot])
+            produced = call("getBlocks", [slot, slot])
             row["produced"] = slot in (produced or [])
         except RuntimeError as exc:
             row["produced"] = None
             row["getBlocks_error"] = str(exc)
         try:
-            row["block_time"] = rpc(url, "getBlockTime", [slot])
+            row["block_time"] = call("getBlockTime", [slot])
         except RuntimeError as exc:
             row["block_time_error"] = str(exc)
-        try:
-            block = rpc(url, "getBlock", [slot, {
-                "encoding": "jsonParsed",
-                "transactionDetails": "full",
-                "rewards": False,
-                "maxSupportedTransactionVersion": 0,
-            }])
-            row["block"] = inspect_block(block)
-            if block is not None:
-                sample = row["block"]["sample_signature"]
-                if sample:
-                    try:
-                        tx = rpc(url, "getTransaction", [sample, {
-                            "encoding": "jsonParsed",
-                            "maxSupportedTransactionVersion": 0,
-                        }])
-                        row["sample_transaction"] = {
-                            "ok": tx is not None,
-                            "slot": tx.get("slot") if isinstance(tx, dict) else None,
-                            "meta_present": bool(tx and tx.get("meta") is not None),
-                        }
-                    except RuntimeError as exc:
-                        row["sample_transaction"] = {"ok": False, "error": str(exc)}
-        except RuntimeError as exc:
-            row["block_error"] = str(exc)
+
+        block = None
+        for encoding in ("jsonParsed", "json"):
+            try:
+                block = call("getBlock", [slot, {
+                    "encoding": encoding,
+                    "transactionDetails": "full",
+                    "rewards": False,
+                    "maxSupportedTransactionVersion": 0,
+                }])
+                row["encoding_used"] = encoding
+                row["json_parsed_supported"] = encoding == "jsonParsed"
+                row["block"] = inspect_block(block)
+                break
+            except RuntimeError as exc:
+                row.setdefault("block_encoding_errors", {})[encoding] = str(exc)
+
+        if block is not None:
+            sample = row["block"]["sample_signature"]
+            if sample:
+                try:
+                    tx = call("getTransaction", [sample, {
+                        "encoding": "json",
+                        "maxSupportedTransactionVersion": 0,
+                    }])
+                    row["sample_transaction"] = {
+                        "ok": tx is not None,
+                        "slot": tx.get("slot") if isinstance(tx, dict) else None,
+                        "meta_present": bool(tx and tx.get("meta") is not None),
+                    }
+                except RuntimeError as exc:
+                    row["sample_transaction"] = {"ok": False, "error": str(exc)}
         report["slots"].append(row)
 
     if address:
         try:
-            result = rpc(url, "getSignaturesForAddress", [address, {"limit": 5}])
+            result = call("getSignaturesForAddress", [address, {"limit": 5}])
             report["address_history"] = {
                 "ok": True, "returned": len(result or []),
                 "note": "A small successful sample does not prove full address-history coverage."
@@ -131,18 +139,16 @@ def main():
                         help="Old Faithful JSON-RPC URL (or OLD_FAITHFUL_RPC_URL)")
     parser.add_argument("--slot", type=int, action="append", required=True,
                         help="historical slot to probe; repeat for multiple slots")
-    parser.add_argument("--address", help="optional address for a diagnostic GSFA lookup")
+    parser.add_argument("--address", help="optional diagnostic GSFA lookup")
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()
     if not args.rpc:
         parser.error("--rpc or OLD_FAITHFUL_RPC_URL is required")
     if any(slot < 0 for slot in args.slot):
         parser.error("slots must be non-negative")
-    try:
-        result = probe(args.rpc, args.slot, args.address)
-    except RuntimeError as exc:
-        print(f"fatal probe error: {exc}", file=sys.stderr)
-        raise SystemExit(2)
+    if args.timeout < 1:
+        parser.error("--timeout must be positive")
+    result = probe(args.rpc, args.slot, args.address, args.timeout)
     print(json.dumps(result, indent=2, sort_keys=True))
     good = sum(1 for row in result["slots"]
                if row.get("block", {}).get("status") == "OK"
