@@ -74,7 +74,7 @@ def main():
         slot = min(slots, key=lambda value: abs(value - target))
         ok, block, block_ms = call(args.rpc, "getBlock", [slot, {
             "encoding": "json", "transactionDetails": "full", "rewards": False,
-            "maxSupportedTransactionVersion": 0
+            "maxSupportedTransactionVersion": 1
         }])
         if not ok or not block:
             print(f"history_{days}d: INCONCLUSIVE getBlock slot={slot} failed: {str(block)[:300]}")
@@ -89,7 +89,7 @@ def main():
             print(f"history_{days}d: BLOCK_OK slot={slot} tx_count={len(txs)} but no sample signature")
             continue
         tx_ok, tx_result, tx_ms = call(args.rpc, "getTransaction", [signature, {
-            "encoding": "json", "commitment": "finalized", "maxSupportedTransactionVersion": 0
+            "encoding": "json", "commitment": "finalized", "maxSupportedTransactionVersion": 1
         }])
         print(f"history_{days}d: BLOCK_OK slot={slot} blockTime={block.get('blockTime')} "
               f"tx_count={len(txs)} getBlocks={ms}ms getBlock={block_ms}ms "
