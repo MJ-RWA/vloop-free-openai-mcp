@@ -14,7 +14,7 @@ import urllib.request
 from collections import defaultdict
 
 from solana_ingest import (launch_mints, pool_info, RAYDIUM_V4, PUMP_AMM,
-                           instructions, parsed_info, slot_metrics)
+                           instructions, parsed_info)
 from spl_rug_radar import score_launch
 
 LABELS_URL = "https://raw.githubusercontent.com/Saba-Heydaridoost/rugpull_detector/main/dataset/rule_based_labels.csv"
@@ -146,12 +146,14 @@ def find_mint_init(url, mint, max_pages=20):
     return None, inspected, "mint_init_not_found_within_page_limit"
 
 
-def inspect_window(url, mint, launch_slot, dex_programs):
+def inspect_window(url, mint, launch_slot, dex_programs, include_blocks=False):
     end = launch_slot + 15
     slots, error = rpc(url, "getBlocks", [launch_slot, end])
     if error or slots is None:
-        return {"error": error or "getBlocks_empty", "produced_slots": []}
+        empty = {"error": error or "getBlocks_empty", "produced_slots": []}
+        return (empty, {}) if include_blocks else empty
     summaries = []
+    blocks_by_slot = {}
     observed_programs = defaultdict(int)
     program_examples = []
     for slot in slots:
@@ -162,6 +164,7 @@ def inspect_window(url, mint, launch_slot, dex_programs):
         if block_error or not block:
             summaries.append({"slot": slot, "error": block_error or "block_unavailable"})
             continue
+        blocks_by_slot[slot] = block
         matching = 0
         pool_events = []
         for entry in block.get("transactions", []):
@@ -190,13 +193,70 @@ def inspect_window(url, mint, launch_slot, dex_programs):
             summaries.append({"slot": slot, "mint_related_transactions": matching,
                               "matching_pool_events": pool_events,
                               "transaction_count": len(block.get("transactions", []))})
-    return {"produced_slots": slots, "slot_summaries": summaries,
-            "observed_program_ids": dict(sorted(observed_programs.items())),
-            "mint_related_transaction_examples": program_examples}
+    result = {"produced_slots": slots, "slot_summaries": summaries,
+              "observed_program_ids": dict(sorted(observed_programs.items())),
+              "mint_related_transaction_examples": program_examples}
+    return (result, blocks_by_slot) if include_blocks else result
 
 
 
-def reconstruct_features(url, mint, launch, window, dex_programs):
+def slot_metrics_from_blocks(mint, start, end, blocks_by_slot):
+    """Compute early activity from already-fetched historical blocks."""
+    buys, funders0, same_slot, buyers, sellers = [], set(), {}, set(), set()
+    for slot in range(start, end + 1):
+        block = blocks_by_slot.get(slot)
+        if not block:
+            continue
+        entries = block.get("transactions", [])
+        funding = {}
+        for entry in entries:
+            for ix in instructions(entry.get("transaction", {})):
+                typ, info = parsed_info(ix)
+                if typ == "transfer" and info.get("source") and info.get("destination"):
+                    funding[info["destination"]] = info["source"]
+        for entry in entries:
+            tx = entry.get("transaction", {})
+            meta = entry.get("meta") or {}
+            keys = tx.get("message", {}).get("accountKeys", [])
+            payer = (keys[0].get("pubkey") if keys and isinstance(keys[0], dict)
+                     else keys[0] if keys else None)
+            signers = {x.get("pubkey") for x in keys
+                       if isinstance(x, dict) and x.get("signer")}
+            pre, post = {}, {}
+            for item in meta.get("preTokenBalances", []):
+                if item.get("mint") == mint:
+                    pre[item.get("accountIndex")] = (
+                        int(item.get("uiTokenAmount", {}).get("amount", 0)), item.get("owner"))
+            for item in meta.get("postTokenBalances", []):
+                if item.get("mint") == mint:
+                    post[item.get("accountIndex")] = (
+                        int(item.get("uiTokenAmount", {}).get("amount", 0)), item.get("owner"))
+            delta = 0
+            for index in set(pre) | set(post):
+                before, before_owner = pre.get(index, (0, None))
+                after, after_owner = post.get(index, (0, None))
+                owner = after_owner or before_owner
+                change = after - before
+                if change > 0 and owner in signers:
+                    delta += change
+                    buyers.add(owner)
+                elif change < 0 and owner in signers:
+                    sellers.add(owner)
+            if delta > 0:
+                buys.append(float(delta))
+                same_slot[slot] = same_slot.get(slot, 0) + 1
+                if slot == start:
+                    funders0.add(funding.get(payer, payer))
+    n = len(buys)
+    mean = sum(buys) / n if n else 0
+    cv = (sum((value - mean) ** 2 for value in buys) / n) ** 0.5 / mean if mean else 1.0
+    return {"slot0_buys": same_slot.get(start, 0), "total_early_buys": n,
+            "unique_funders_in_slot0": len(funders0), "buy_amount_cv": cv,
+            "jito_bundle_count": 0,
+            "wash_roundtrip_ratio": len(buyers & sellers) / max(1, len(buyers))}
+
+
+def reconstruct_features(url, mint, launch, window, dex_programs, blocks_by_slot=None):
     """Build a strictly launch-to-15-slot feature row from historical block data.
 
     Holder balances are reconstructed from token-balance deltas in the scanned
@@ -206,6 +266,7 @@ def reconstruct_features(url, mint, launch, window, dex_programs):
     launch_slot = launch["slot"]
     end_slot = launch_slot + 15
     account_state = {}
+    blocks_by_slot = dict(blocks_by_slot or {})
     mint_authority = None
     freeze_authority = None
     mutable_metadata = None
@@ -217,12 +278,15 @@ def reconstruct_features(url, mint, launch, window, dex_programs):
     lp_vaults = []
     pool_event_count = 0
     for slot in window.get("produced_slots", []):
-        block, error = rpc(url, "getBlock", [slot, {
-            "encoding": "jsonParsed", "transactionDetails": "full",
-            "rewards": False, "maxSupportedTransactionVersion": 0
-        }])
-        if error or not block:
-            continue
+        block = blocks_by_slot.get(slot)
+        if block is None:
+            block, error = rpc(url, "getBlock", [slot, {
+                "encoding": "jsonParsed", "transactionDetails": "full",
+                "rewards": False, "maxSupportedTransactionVersion": 0
+            }])
+            if error or not block:
+                continue
+            blocks_by_slot[slot] = block
         for entry in block.get("transactions", []):
             tx = entry.get("transaction", {})
             keys = tx.get("message", {}).get("accountKeys", [])
@@ -297,7 +361,7 @@ def reconstruct_features(url, mint, launch, window, dex_programs):
         if minted > 0 and burned > 0:
             burn_pct = max(burn_pct, min(100.0, 100.0 * burned / minted))
             burn_verified = True
-    activity = slot_metrics(url, mint, launch_slot, end_slot)
+    activity = slot_metrics_from_blocks(mint, launch_slot, end_slot, blocks_by_slot)
     event = {
         "mint": mint, "launch_slot": launch_slot, "event_slot": end_slot,
         "mint_authority_active": bool(mint_authority),
@@ -357,10 +421,12 @@ def main():
         row = {**item, "mint_init_signatures_inspected": inspected,
                "mint_init_error": error, "mint_init": init}
         if init:
-            row["first_15_slot_window"] = inspect_window(args.rpc, mint, init["slot"], dex_programs)
+            row["first_15_slot_window"], window_blocks = inspect_window(
+                args.rpc, mint, init["slot"], dex_programs, include_blocks=True)
             try:
                 row["reconstruction"] = reconstruct_features(
-                    args.rpc, mint, init, row["first_15_slot_window"], dex_programs)
+                    args.rpc, mint, init, row["first_15_slot_window"],
+                    dex_programs, window_blocks)
             except Exception as exc:
                 row["feature_reconstruction_error"] = type(exc).__name__
         report["records"].append(row)
