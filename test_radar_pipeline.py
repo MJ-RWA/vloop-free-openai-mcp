@@ -72,17 +72,32 @@ class IngestTests(unittest.TestCase):
         self.assertFalse(lv)
         self.assertEqual((locked,days),(0.0,0))
 
-    def test_lp_burn_supply_delta_is_not_double_counted(self):
+    def test_lp_supply_delta_without_explicit_burn_is_unverified(self):
         pool={"transaction":{"message":{"instructions":[
           {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
-        def fake_rpc(url,method,params):
-            if method=="getTokenSupply":return {"value":{"amount":"500"}}
-            raise AssertionError(method)
-        with patch.object(solana_ingest,"rpc",side_effect=fake_rpc):
-            burn,bv,locked,days,lv=solana_ingest.lp_proof("rpc",pool,"LP",set(),5)
-        self.assertEqual(burn,50)
+        burn,bv,locked,days,lv=solana_ingest.lp_proof("rpc",pool,"LP",set(),5)
+        self.assertEqual(burn,0.0)
+        self.assertFalse(bv)
+        self.assertEqual((locked,days,lv),(0.0,0,False))
+
+    def test_lp_burn_requires_explicit_matching_burn_instruction(self):
+        pool={"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
+        burn_tx={"meta":{"err":None},"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"burnChecked","info":{"mint":"LP","amount":"300"}}}]}}}
+        burn,bv,locked,days,lv=solana_ingest.lp_proof("rpc",pool,"LP",set(),5,burn_tx)
+        self.assertEqual(burn,30)
         self.assertTrue(bv)
         self.assertEqual((locked,days,lv),(0.0,0,False))
+
+    def test_failed_lp_burn_transaction_is_not_counted(self):
+        pool={"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"mintTo","info":{"mint":"LP","amount":"1000"}}}]}}}
+        burn_tx={"meta":{"err":{"InstructionError":[0,"Custom"]}},"transaction":{"message":{"instructions":[
+          {"parsed":{"type":"burn","info":{"mint":"LP","amount":"300"}}}]}}}
+        burn,bv,_,_,_=solana_ingest.lp_proof("rpc",pool,"LP",set(),5,burn_tx)
+        self.assertEqual(burn,0.0)
+        self.assertFalse(bv)
     def test_websocket_receive_reassembles_fragmented_json(self):
         class FakeSocket:
             def __init__(self,data):
