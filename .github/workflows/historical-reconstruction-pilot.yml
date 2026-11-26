@@ -6,7 +6,7 @@ on:
       per_class:
         description: "Number of q1 VALID examples per class (1-10)"
         required: true
-        default: "1"
+        default: "4"
         type: string
   push:
     branches:
@@ -30,7 +30,7 @@ jobs:
       - name: Run bounded reconstruction pilot
         env:
           HELIUS_RPC_URL: ${{ secrets.HELIUS_RPC_URL }}
-          PER_CLASS: ${{ inputs.per_class || '1' }}
+          PER_CLASS: ${{ inputs.per_class || '4' }}
         run: |
           if [ -z "$HELIUS_RPC_URL" ]; then
             echo "::error::Configure the HELIUS_RPC_URL Actions secret."
