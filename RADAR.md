@@ -91,3 +91,19 @@ a DEX pool, a rug, or a safe launch. Do not feed these rows directly into
 pool-creation transactions, reconstruct features available within 15 slots,
 and attach independently reviewed outcome labels. Preserve signatures and
 label provenance for auditability.
+
+
+## Old Faithful historical RPC capability probe
+
+Old Faithful can serve archived Solana blocks through its `faithful-cli rpc` JSON-RPC server. Remote CAR and index URIs are supported when the hosting endpoint accepts HTTP Range requests. However, the official RPC documentation notes that the GSFA index needed for full `getSignaturesForAddress` support cannot currently be used remotely. The default server build also does not enable `jsonParsed`; that requires the documented `make jsonParsed-linux` build target. See https://docs.old-faithful.net/usage/rpc-server and https://github.com/rpcpool/yellowstone-faithful.
+
+Once an Old Faithful-compatible endpoint is running, probe representative historical slots before attempting a dataset reconstruction:
+
+```powershell
+$env:OLD_FAITHFUL_RPC_URL = "http://127.0.0.1:8899"
+py -3.12 faithful_probe.py --slot 150000000 --slot 160000000 --timeout 90
+```
+
+Or pass `--rpc` directly. Add `--address <PUBKEY>` only to diagnose address-history lookup; failure of that method does not prevent the bounded slot-scan path. The probe tests `getVersion`, `getFirstAvailableBlock`, `getSlot`, `getBlocks`, `getBlockTime`, `getBlock`, and a sample `getTransaction`. It first tries `jsonParsed`, then falls back to raw `json` and reports which encoding worked. Raw JSON availability means the historical block is retrievable, but it does not by itself provide parsed SPL instruction fields; raw instruction decoding is still required if `jsonParsed` is unavailable.
+
+Probe at least one known slot from each target epoch, including a slot whose signature and transaction metadata have been independently checked. A null response, unsupported method, missing transaction metadata, or a successful sample from only one epoch is not evidence of complete history. Save the JSON output with the reconstruction audit. Do not start large-scale collection until block coverage and transaction metadata are verified across the cohort's full date range.
