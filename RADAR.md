@@ -15,16 +15,17 @@ Python 3.12; no pip packages or wallet are needed. A public RPC endpoint is the 
 python solana_ingest.py \
   --rpc https://api.mainnet-beta.solana.com \
   --ws wss://api.mainnet-beta.solana.com \
-  --dex-program YOUR_DEX_PROGRAM_ID
+  --dex-program 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8 \\
+  --dex-program YOUR_OTHER_DEX_PROGRAM_ID
 ```
 
-Repeat `--dex-program` for every supported venue and `--lock-program` for locker programs whose parsed lock instructions expose LP mint, amount and unlock timestamp. The adapter emits JSON lines to stdout. Pipe them to a file if you want to retain live observations.
+The adapter includes a binary `Initialize2` decoder for Raydium AMM v4 (program ID shown above), in addition to parsed-instruction decoding for other venues. Repeat `--dex-program` for every additional venue. Add `--lock-program` for locker programs whose parsed lock instructions expose LP mint, amount and unlock timestamp; lock events are tracked after pool creation while the launch remains inside the 15-slot window. The adapter emits JSON lines to stdout. Pipe them to a file if you want to retain live observations.
 
 The adapter intentionally refuses to infer LP lock verification from an address or an untrusted claim. A lock counts only when a configured locker program returns a parsed lock instruction with the LP mint, amount and a future unlock timestamp. Burn verification requires an observed LP mint-to amount and an RPC-confirmed current supply. Unknown or unsupported venue layouts remain unverified.
 
 ### Coverage and honest limitations
 
-Solana's standard JSON-RPC does not expose a universal decoded DEX-pool schema. Configure the exact venue program IDs and use parsed transaction instructions; some venues require a venue-specific decoder. The generic adapter cannot safely decode every binary DEX instruction. It also cannot infer Jito bundle membership from ordinary RPC logs alone; it records same-slot buyer/funder concentration, and leaves the explicit Jito bundle count at zero unless a future provider-specific adapter supplies verified bundle metadata. Thin-liquidity/FDV and mutable metadata require a venue/metadata decoder and are not fabricated when unavailable.
+Solana's standard JSON-RPC does not expose a universal decoded DEX-pool schema. Configure the exact venue program IDs and use parsed transaction instructions; some venues require a venue-specific decoder. The generic adapter cannot safely decode every binary DEX instruction. It cannot infer Jito bundle membership from ordinary RPC logs alone; it records same-slot buyer/funder concentration and same-wallet round trips, and leaves the explicit Jito bundle count at zero unless a provider-specific adapter supplies verified bundle metadata. Thin-liquidity/FDV and mutable metadata require a venue/metadata decoder and are not fabricated when unavailable.
 
 The adapter is read-only: it never signs or sends transactions. It requires an RPC endpoint that supports `logsSubscribe`, `getTransaction`, `getBlock`, `getProgramAccounts`, `getTokenSupply`, and `getTokenLargestAccounts`.
 
