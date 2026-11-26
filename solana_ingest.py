@@ -102,6 +102,42 @@ def tx_mints(tx):
     meta=(tx or {}).get("meta",{})
     return {x.get("mint") for x in meta.get("postTokenBalances",[]) if x.get("mint")}
 
+class LaunchCorrelator:
+    """Bounded, slot-aware mint/pool joiner tolerant of notification reordering."""
+    def __init__(self,window=15,limit=10000):
+        self.window=window; self.limit=limit
+        self.mints={}; self.pools={}
+
+    def _prune(self,slot):
+        for cache in (self.mints,self.pools):
+            for mint,item in list(cache.items()):
+                event_slot=item["slot"] if "slot" in item else item["pool_slot"]
+                if slot-event_slot>self.window:cache.pop(mint,None)
+            while len(cache)>self.limit:cache.pop(next(iter(cache)))
+
+    def add_mint(self,mint,launch,current_slot):
+        self._prune(current_slot)
+        pool=self.pools.pop(mint,None)
+        if pool:
+            age=pool["pool_slot"]-launch["slot"]
+            if 0<=age<=self.window:
+                return launch,pool["pool"],pool["tx"],pool["pool_slot"]
+        self.mints[mint]=launch
+        while len(self.mints)>self.limit:self.mints.pop(next(iter(self.mints)))
+        return None
+
+    def add_pool(self,mint,pool,tx,pool_slot,current_slot):
+        self._prune(current_slot)
+        launch=self.mints.pop(mint,None)
+        if launch:
+            age=pool_slot-launch["slot"]
+            if 0<=age<=self.window:
+                return launch,pool,tx,pool_slot
+        self.pools[mint]={"pool":pool,"tx":tx,"pool_slot":pool_slot}
+        while len(self.pools)>self.limit:self.pools.pop(next(iter(self.pools)))
+        return None
+
+
 def b58decode(value):
     alphabet="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
     n=0
@@ -239,8 +275,10 @@ def main():
     calibration=json.load(open(args.calibration)) if args.calibration else None
     if not args.dex_program:ap.error("at least one --dex-program is required; use exact pool program IDs")
     programs=[TOKEN,TOKEN22]+args.dex_program+args.lock_program
+    correlator=LaunchCorrelator()
+    sub_program={}; seen={}; pool_by_lp={}
     while True:
-        s=None; pending={}; sub_program={}; seen=set(); pool_by_lp={}
+        s=None
         def emit(mint,launch,pool,pool_tx,event_tx,slot):
             age=slot-launch["slot"]
             if age<0 or age>15:return
@@ -280,20 +318,27 @@ def main():
                 logs=value.get("logs",[])
                 if pid in (TOKEN,TOKEN22) and not any("InitializeMint" in x for x in logs):continue
                 if pid in args.dex_program and not any(any(k in x.lower() for k in ("initialize","create","open")) for x in logs):continue
-                seen.add(key)
+                seen[key]=slot
+                if len(seen)>20000:seen.pop(next(iter(seen)))
                 try:tx=rpc(args.rpc,"getTransaction",[sig,{"encoding":"jsonParsed","commitment":"confirmed","maxSupportedTransactionVersion":1}])
                 except Exception:continue
                 if not tx:continue
                 if pid in (TOKEN,TOKEN22):
-                    for mint in launch_mints(tx):pending[mint]={"slot":slot,"mint_tx":tx}
+                    for mint in launch_mints(tx):
+                        match=correlator.add_mint(mint,{"slot":slot,"mint_tx":tx},slot)
+                        if match:
+                            launch,pool,pool_tx,pool_slot=match
+                            if pool["lp_mint"]:pool_by_lp[pool["lp_mint"]]=(mint,launch,pool,pool_tx)
+                            emit(mint,launch,pool,pool_tx,pool_tx,pool_slot)
                     continue
                 pool=pool_info(tx,set(args.dex_program)) if pid in args.dex_program else None
                 if pool:
                     for mint in pool["mints"]:
-                        launch=pending.get(mint)
-                        if not launch:continue
-                        if pool["lp_mint"]:pool_by_lp[pool["lp_mint"]]=(mint,launch,pool,tx)
-                        emit(mint,launch,pool,tx,tx,slot)
+                        match=correlator.add_pool(mint,pool,tx,slot,slot)
+                        if not match:continue
+                        launch,matched_pool,pool_tx,pool_slot=match
+                        if matched_pool["lp_mint"]:pool_by_lp[matched_pool["lp_mint"]]=(mint,launch,matched_pool,pool_tx)
+                        emit(mint,launch,matched_pool,pool_tx,pool_tx,pool_slot)
                     continue
                 if pid in args.lock_program:
                     for ix in instructions(tx):
