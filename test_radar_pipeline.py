@@ -67,6 +67,40 @@ class IngestTests(unittest.TestCase):
         self.assertEqual(burn,50)
         self.assertTrue(bv)
         self.assertEqual((locked,days,lv),(0.0,0,False))
+    def test_websocket_receive_reassembles_fragmented_json(self):
+        class FakeSocket:
+            def __init__(self,data):
+                self.data=data
+                self.sent=[]
+            def recv(self,n):
+                part=self.data[:n]
+                self.data=self.data[n:]
+                return part
+            def sendall(self,data):
+                self.sent.append(data)
+        payload=b'{"jsonrpc":"2.0","result":7}'
+        split=11
+        frames=bytes([0x01,split])+payload[:split]+bytes([0x80,len(payload)-split])+payload[split:]
+        sock=FakeSocket(frames)
+        self.assertEqual(solana_ingest.ws_recv(sock),{"jsonrpc":"2.0","result":7})
+
+    def test_websocket_receive_handles_ping_between_fragments(self):
+        class FakeSocket:
+            def __init__(self,data):
+                self.data=data
+                self.sent=[]
+            def recv(self,n):
+                part=self.data[:n]
+                self.data=self.data[n:]
+                return part
+            def sendall(self,data):
+                self.sent.append(data)
+        payload=b'{"ok":true}'
+        split=5
+        frames=bytes([0x01,split])+payload[:split]+bytes([0x89,1])+b"x"+bytes([0x80,len(payload)-split])+payload[split:]
+        sock=FakeSocket(frames)
+        self.assertEqual(solana_ingest.ws_recv(sock),{"ok":True})
+        self.assertEqual(len(sock.sent),1)
     def test_slot_metrics_counts_net_buys_and_launch_funders(self):
         def make(payer,delta):
             return {"transaction":{"message":{"accountKeys":[{"pubkey":payer,"signer":True}]}},
