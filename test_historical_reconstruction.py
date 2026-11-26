@@ -100,5 +100,49 @@ class HistoricalProgramDiscoveryTests(unittest.TestCase):
         self.assertTrue(result["score"]["in_window"])
 
 
+    @patch("historical_reconstruction_pilot.rpc")
+    def test_reconstructs_authority_from_inner_instruction(self, mocked_rpc):
+        mint = "MINT_INNER"
+        block = {"transactions": [{
+            "transaction": {"signatures": ["sig"], "message": {
+                "accountKeys": ["TOKEN_PROGRAM", "MINT_ACCOUNT"],
+                "instructions": []
+            }},
+            "meta": {"preTokenBalances": [], "postTokenBalances": [],
+                     "innerInstructions": [{"index": 0, "instructions": [{
+                         "programId": "TOKEN_PROGRAM",
+                         "parsed": {"type": "initializeMint2", "info": {
+                             "mint": mint, "mintAuthority": "AUTH", "freezeAuthority": "FREEZE"
+                         }}
+                     }]}]}
+        }]}
+        mocked_rpc.return_value = (block, None)
+        result = pilot.reconstruct_features(
+            "https://rpc.invalid", mint, {"slot": 200},
+            {"produced_slots": [200]}, set()
+        )
+        self.assertTrue(result["features"]["mint_authority_active"])
+        self.assertTrue(result["features"]["freeze_authority_active"])
+
+    def test_early_activity_uses_signer_token_balance_deltas(self):
+        mint = "MINT_BUY"
+        blocks = {300: {"transactions": [{
+            "transaction": {"message": {"accountKeys": [
+                {"pubkey": "BUYER", "signer": True}
+            ]}},
+            "meta": {
+                "preTokenBalances": [],
+                "postTokenBalances": [{
+                    "mint": mint, "accountIndex": 0, "owner": "BUYER",
+                    "uiTokenAmount": {"amount": "42"}
+                }]
+            }
+        }]}}
+        metrics = pilot.slot_metrics_from_blocks(mint, 300, 315, blocks)
+        self.assertEqual(metrics["slot0_buys"], 1)
+        self.assertEqual(metrics["total_early_buys"], 1)
+        self.assertEqual(metrics["unique_funders_in_slot0"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
