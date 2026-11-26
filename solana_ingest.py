@@ -98,6 +98,16 @@ def launch_mints(tx):
         if typ in ("initializemint","initializemint2") and info.get("mint"):found.append(info["mint"])
     return found
 
+def lock_event_lp_mints(tx):
+    """Extract LP mints only from parsed locker instructions named as locks."""
+    found=set()
+    for ix in instructions(tx):
+        typ,info=parsed_info(ix)
+        lp=info.get("mint",info.get("lpMint"))
+        if "lock" in typ and isinstance(lp,str):found.add(lp)
+    return found
+
+
 def lp_burn_mints(tx):
     """Return LP mint addresses with explicit parsed burn instructions."""
     return {info["mint"] for ix in instructions(tx)
@@ -477,10 +487,7 @@ def main():
                 # token notifications. Join them by the explicit LP mint and
                 # re-score with the lock transaction as the proof source.
                 if pid in args.lock_program:
-                    for ix in instructions(tx):
-                        typ,info=parsed_info(ix)
-                        lp=info.get("mint",info.get("lpMint"))
-                        if "lock" not in typ or not lp:continue
+                    for lp in lock_event_lp_mints(tx):
                         saved=pool_by_lp.get(lp)
                         if not saved:continue
                         mint,launch,pool,pool_tx=saved
