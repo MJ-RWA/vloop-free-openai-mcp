@@ -18,6 +18,25 @@ class BacktestTests(unittest.TestCase):
         self.assertTrue(0<=m["brier"]<=1 and 0<=m["ece"]<=1)
 
 class IngestTests(unittest.TestCase):
+    def test_token2022_features_read_transfer_fee_and_mutable_metadata(self):
+        info={"mintAuthority":"Authority","extensions":[
+          {"extension":"transferFeeConfig","state":{
+            "olderTransferFee":{"transferFeeBasisPoints":125},
+            "newerTransferFee":{"transferFeeBasisPoints":250}}},
+          {"extension":"tokenMetadata","state":{"isMutable":True}}]}
+        self.assertEqual(solana_ingest.mint_risk_features(info),
+          {"metadata_mutable":True,"transfer_fee_bps":250})
+
+    def test_token2022_unknown_extensions_do_not_invent_risk(self):
+        self.assertEqual(solana_ingest.mint_risk_features({"extensions":[
+          {"extension":"nonTransferExtension","state":{"enabled":True}}]}),
+          {"metadata_mutable":False,"transfer_fee_bps":0})
+
+    def test_mint_features_support_flattened_rpc_shape(self):
+        info={"mutable":False,"newerTransferFee":{"transferFeeBasisPoints":"75"}}
+        self.assertEqual(solana_ingest.mint_risk_features(info),
+          {"metadata_mutable":False,"transfer_fee_bps":75})
+
     def test_mint_init_detection(self):
         tx={"transaction":{"message":{"instructions":[
           {"parsed":{"type":"initializeMint","info":{"mint":"Mint111111111111111111111111111111111"}}}]}}}
