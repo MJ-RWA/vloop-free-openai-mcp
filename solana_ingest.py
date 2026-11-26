@@ -8,7 +8,8 @@ from urllib.request import Request,urlopen
 from spl_rug_radar import score_launch
 
 TOKEN="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-TOKEN22="TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"\nRAYDIUM_V4="675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+TOKEN22="TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+RAYDIUM_V4="675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 BURN={"1nc1nerator11111111111111111111111111111111","dead"}
 
 def rpc(url,method,params):
