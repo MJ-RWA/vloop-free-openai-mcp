@@ -107,7 +107,7 @@ def instruction_programs(tx):
     return programs, types
 
 
-def find_mint_init_by_time(url, mint, created_at, radius=48):
+def find_mint_init_by_time(url, mint, created_at, radius=180):
     """Locate a mint initialization near its labeled creation timestamp.
 
     Binary-searching getBlockTime avoids paging through thousands of mint
@@ -177,7 +177,7 @@ def find_mint_init_by_time(url, mint, created_at, radius=48):
     return None, calls + inspected, "mint_init_not_found_near_creation_time"
 
 
-def find_mint_init(url, mint, max_pages=20, created_at=None):
+def find_mint_init(url, mint, max_pages=2, created_at=None):
     # Creation timestamps provide a much cheaper first pass: binary-search
     # block time, then verify the initializeMint instruction in nearby blocks.
     # Fall back to address history if the timestamp window is incomplete.
@@ -475,7 +475,7 @@ def main():
     ap.add_argument("--rpc", default=os.environ.get("HELIUS_RPC_URL"))
     ap.add_argument("--per-class", type=int, default=4)
     ap.add_argument("--out", default="historical_reconstruction_pilot.json")
-    ap.add_argument("--max-pages", type=int, default=20)
+    ap.add_argument("--max-pages", type=int, default=2)
     ap.add_argument("--dex-program", action="append", default=[])
     args = ap.parse_args()
     if not args.rpc:
@@ -491,6 +491,11 @@ def main():
         "sample_design": {"per_class": args.per_class, "selected": len(cohort),
                           "labels": {str(k): sum(x["label"] == k for x in cohort) for k in (0, 1)}},
         "dex_programs": sorted(dex_programs),
+        "mint_init_search": {
+            "primary": "binary-search getBlockTime, then verify initializeMint in nearby blocks",
+            "timestamp_radius_slots": 180,
+            "signature_fallback_max_pages": args.max_pages
+        },
         "records": [],
         "warning": "Small feasibility sample only. No model scores or predictive metrics are computed."
     }
