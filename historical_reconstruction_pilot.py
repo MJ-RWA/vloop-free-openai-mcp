@@ -496,7 +496,9 @@ def main():
     }
     for index, item in enumerate(cohort, 1):
         mint = item["mint"]
-        init, inspected, error = find_mint_init(\n            args.rpc, mint, max_pages=args.max_pages, created_at=item["created_at"]\n        )
+        init, inspected, error = find_mint_init(
+            args.rpc, mint, max_pages=args.max_pages, created_at=item["created_at"]
+        )
         row = {**item, "mint_init_signatures_inspected": inspected,
                "mint_init_error": error, "mint_init": init}
         if init:
