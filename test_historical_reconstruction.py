@@ -69,6 +69,48 @@ class HistoricalProgramDiscoveryTests(unittest.TestCase):
 
 
     @patch("historical_reconstruction_pilot.rpc")
+    def test_timestamp_search_finds_mint_without_address_signature_paging(self, mocked_rpc):
+        mint = "MINT_BY_TIME"
+        launch = {
+            "transaction": {"signatures": ["time-launch"], "message": {
+                "instructions": [{
+                    "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                    "parsed": {"type": "initializeMint2", "info": {"mint": mint}}
+                }]
+            }},
+            "meta": {}
+        }
+
+        def rpc_side_effect(url, method, params):
+            if method == "getSlot":
+                return 10000, None
+            if method == "getBlockTime":
+                return params[0] // 2, None
+            if method == "getBlocks":
+                self.assertEqual(params, [4952, 5048])
+                return [5000], None
+            if method == "getBlock":
+                return {"blockTime": 2500, "transactions": [launch]}, None
+            self.fail("unexpected RPC method: " + method)
+
+        mocked_rpc.side_effect = rpc_side_effect
+        result, inspected, error = pilot.find_mint_init(
+            "https://rpc.invalid", mint, created_at=2500
+        )
+        self.assertIsNone(error)
+        self.assertEqual(result, {
+            "slot": 5000, "signature": "time-launch", "block_time": 2500
+        })
+        self.assertEqual(inspected, 1 + len([
+            call for call in mocked_rpc.call_args_list
+            if call.args[1] == "getBlockTime"
+        ]))
+        self.assertFalse(any(
+            call.args[1] == "getSignaturesForAddress"
+            for call in mocked_rpc.call_args_list
+        ))
+
+    @patch("historical_reconstruction_pilot.rpc")
     def test_reconstructs_holders_and_authorities_from_historical_window(self, mocked_rpc):
         mint = "MINT_ADDRESS"
         block = {"transactions": [{

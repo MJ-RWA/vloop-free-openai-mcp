@@ -107,11 +107,91 @@ def instruction_programs(tx):
     return programs, types
 
 
-def find_mint_init(url, mint, max_pages=20):
+def find_mint_init_by_time(url, mint, created_at, radius=48):
+    """Locate a mint initialization near its labeled creation timestamp.
+
+    Binary-searching getBlockTime avoids paging through thousands of mint
+    signatures and issuing one getTransaction request per signature. The
+    bounded block scan is still verified against the actual initialize-mint
+    instruction; timestamp proximity alone never establishes a launch.
+    """
+    current, error = rpc(url, "getSlot", [{"commitment": "finalized"}])
+    if error or not isinstance(current, int):
+        return None, 0, error or "current_slot_unavailable"
+
+    low, high = 0, current
+    first_after = None
+    calls = 0
+    for _ in range(36):
+        if low > high:
+            break
+        mid = (low + high) // 2
+        block_time, time_error = rpc(url, "getBlockTime", [mid])
+        calls += 1
+        actual_slot = mid
+        if time_error or block_time is None:
+            # A skipped slot has no block time. Probe a few adjacent slots;
+            # if the provider cannot resolve one, retain the signature path.
+            found = None
+            for distance in range(1, 5):
+                for candidate in (mid - distance, mid + distance):
+                    if candidate < 0 or candidate > current:
+                        continue
+                    value, candidate_error = rpc(url, "getBlockTime", [candidate])
+                    calls += 1
+                    if not candidate_error and value is not None:
+                        found = (candidate, value)
+                        break
+                if found:
+                    break
+            if not found:
+                return None, calls, "block_time_lookup_unavailable"
+            actual_slot, block_time = found
+
+        if block_time < created_at:
+            low = mid + 1
+        else:
+            first_after = actual_slot
+            high = mid - 1
+
+    anchor = first_after if first_after is not None else low
+    start_slot = max(0, anchor - radius)
+    end_slot = min(current, anchor + radius)
+    slots, error = rpc(url, "getBlocks", [start_slot, end_slot])
+    if error or slots is None:
+        return None, calls, error or "timestamp_window_unavailable"
+
+    inspected = 0
+    for slot in slots:
+        block, block_error = rpc(url, "getBlock", [slot, {
+            "encoding": "jsonParsed", "transactionDetails": "full",
+            "rewards": False, "maxSupportedTransactionVersion": 0
+        }])
+        if block_error or not block:
+            continue
+        for entry in block.get("transactions", []):
+            inspected += 1
+            if mint in launch_mints(entry):
+                return {"slot": int(slot), "signature": tx_signature(entry),
+                        "block_time": block.get("blockTime")}, calls + inspected, None
+    return None, calls + inspected, "mint_init_not_found_near_creation_time"
+
+
+def find_mint_init(url, mint, max_pages=20, created_at=None):
+    # Creation timestamps provide a much cheaper first pass: binary-search
+    # block time, then verify the initializeMint instruction in nearby blocks.
+    # Fall back to address history if the timestamp window is incomplete.
+    inspected = 0
+    if created_at is not None:
+        result, inspected, time_error = find_mint_init_by_time(
+            url, mint, created_at
+        )
+        if result:
+            return result, inspected, None
+
     # getSignaturesForAddress is newest-first. Page to the oldest retained
-    # signatures first, then inspect transactions oldest-first. A mint account
-    # normally cannot have a transaction before its initialization, so this
-    # avoids thousands of unnecessary getTransaction calls on active mints.
+    # signatures first, then inspect transactions oldest-first. This fallback
+    # is deliberately retained for timestamp drift or incomplete block windows.
     pages = []
     before = None
     for _ in range(max_pages):
@@ -121,14 +201,13 @@ def find_mint_init(url, mint, max_pages=20):
         sigs, error = rpc(url, "getSignaturesForAddress", params)
         if error or not sigs:
             if not pages:
-                return None, 0, error or "no_signatures"
+                return None, inspected, error or "no_signatures"
             break
         pages.append(sigs)
         before = sigs[-1].get("signature")
         if not before or len(sigs) < 1000:
             break
 
-    inspected = 0
     for page in reversed(pages):
         for item in reversed(page):
             inspected += 1
@@ -417,7 +496,7 @@ def main():
     }
     for index, item in enumerate(cohort, 1):
         mint = item["mint"]
-        init, inspected, error = find_mint_init(args.rpc, mint)
+        init, inspected, error = find_mint_init(\n            args.rpc, mint, max_pages=args.max_pages, created_at=item["created_at"]\n        )
         row = {**item, "mint_init_signatures_inspected": inspected,
                "mint_init_error": error, "mint_init": init}
         if init:
