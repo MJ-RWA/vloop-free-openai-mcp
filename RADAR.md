@@ -174,7 +174,7 @@ It remains a four-block sample, not continuous historical coverage. It does not 
 
 ## Bounded labeled historical reconstruction pilot
 
-`historical_reconstruction_pilot.py` provides a small feasibility audit using the public q1 rule-based labels from the Early Rug Pull Detection on Solana research repository. It selects a deterministic chronological spread of q1 `VALID` positive and negative mints, recovers each mint-initialization transaction with `getSignaturesForAddress` and `getTransaction`, then inspects the following 15 produced slots for mint-related transactions and configured pool initializations.
+`historical_reconstruction_pilot.py` provides a small feasibility audit using the public q1 rule-based labels from the Early Rug Pull Detection on Solana research repository. It selects a deterministic chronological spread of q1 `VALID` positive and negative mints. It first uses each label row's `token_creation_time` to binary-search `getBlockTime`, scans a bounded nearby slot window, and verifies the actual `initializeMint`/`initializeMint2` instruction. This avoids walking thousands of address signatures and fetching one transaction at a time for every candidate. If timestamp-based discovery cannot verify the mint initialization, it falls back to `getSignaturesForAddress` pagination and `getTransaction`. After locating the launch, it inspects the following 15 produced slots for mint-related transactions and configured pool initializations.
 
 Run locally with `HELIUS_RPC_URL` set in the environment:
 
