@@ -87,7 +87,7 @@ class HistoricalProgramDiscoveryTests(unittest.TestCase):
             if method == "getBlockTime":
                 return params[0] // 2, None
             if method == "getBlocks":
-                self.assertEqual(params, [4952, 5048])
+                self.assertEqual(params, [4820, 5180])
                 return [5000], None
             if method == "getBlock":
                 return {"blockTime": 2500, "transactions": [launch]}, None
